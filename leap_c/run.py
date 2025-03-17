@@ -5,9 +5,10 @@ from argparse import ArgumentParser
 from dataclasses import asdict
 from pathlib import Path
 
+import yaml
+
 import leap_c.examples  # noqa: F401
 import leap_c.rl  # noqa: F401
-import yaml
 from leap_c.registry import create_default_cfg, create_task, create_trainer
 from leap_c.trainer import BaseConfig
 
@@ -66,6 +67,7 @@ def main(
         raise ValueError(f"Output path {output_path} already exists")
 
     task = create_task(task_name)
+    task.mpc.mpc.n_batch = cfg.sac.batch_size  # type:ignore
 
     print_inputs(
         trainer_name=trainer_name,
