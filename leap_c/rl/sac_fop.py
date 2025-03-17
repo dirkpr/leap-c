@@ -1,7 +1,6 @@
 """Provides a trainer for a Soft Actor-Critic algorithm that uses a differentiable MPC
 layer for the policy network."""
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, NamedTuple
@@ -12,20 +11,15 @@ import torch
 import torch.nn as nn
 
 from leap_c.mpc import MpcBatchedState
+from leap_c.nn.gaussian import SquashedGaussian
 from leap_c.nn.mlp import MLP, MlpConfig
 from leap_c.nn.modules import MpcSolutionModule
-from leap_c.nn.gaussian import SquashedGaussian
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
 from leap_c.rl.sac import SacCritic
+from leap_c.rl.utils import soft_target_update
 from leap_c.task import Task
-from leap_c.trainer import (
-    BaseConfig,
-    LogConfig,
-    TrainConfig,
-    Trainer,
-    ValConfig,
-)
+from leap_c.trainer import BaseConfig, LogConfig, TrainConfig, Trainer, ValConfig
 
 
 @dataclass(kw_only=True)
@@ -33,6 +27,8 @@ class SacFopAlgorithmConfig:
     """Contains the necessary information for a SacTrainer.
 
     Attributes:
+        critic_mlp: The configuration for the critic networks.
+        actor_mlp: The configuration for the policy network.
         batch_size: The batch size for training.
         buffer_size: The size of the replay buffer.
         gamma: The discount factor.
@@ -41,6 +37,8 @@ class SacFopAlgorithmConfig:
         lr_q: The learning rate for the Q networks.
         lr_pi: The learning rate for the policy network.
         lr_alpha: The learning rate for the temperature parameter.
+        init_alpha: The initial value for the temperature parameter.
+        entropy_reward_bonus: Whether to add an entropy bonus to the reward.
         num_critics: The number of critic networks.
         report_loss_freq: The frequency of reporting the loss.
         update_freq: The frequency of updating the networks.
@@ -57,6 +55,7 @@ class SacFopAlgorithmConfig:
     lr_pi: float = 3e-4
     lr_alpha: float = 1e-3
     init_alpha: float = 0.1
+    entropy_reward_bonus: bool = True
     num_critics: int = 2
     report_loss_freq: int = 100
     update_freq: int = 1
@@ -89,6 +88,16 @@ class SacFopActorOutput(NamedTuple):
     status: torch.Tensor
     state_solution: MpcBatchedState
 
+    def select(self, mask: torch.Tensor) -> "SacFopActorOutput":
+        return SacFopActorOutput(
+            self.param[mask],
+            self.log_prob[mask],
+            None,  # type:ignore
+            self.action[mask],
+            self.status[mask],
+            None,  # type:ignore
+        )
+
 
 class MpcSacActor(nn.Module):
     def __init__(
@@ -115,10 +124,13 @@ class MpcSacActor(nn.Module):
         self.mpc: MpcSolutionModule = task.mpc  # type:ignore
         self.prepare_mpc_input = task.prepare_mpc_input
         self.prepare_mpc_state = prepare_mpc_state
+        self.actual_used_mpc_state = None
 
         self.squashed_gaussian = SquashedGaussian(param_space)  # type:ignore
 
-    def forward(self, obs, mpc_state: MpcBatchedState, deterministic=False):
+    def forward(
+        self, obs, mpc_state: MpcBatchedState, deterministic=False
+    ) -> SacFopActorOutput:
         e = self.extractor(obs)
         mean, log_std = self.mlp(e)
 
@@ -133,6 +145,7 @@ class MpcSacActor(nn.Module):
         # TODO: We have to catch and probably replace the state_solution somewhere,
         #       if its not a converged solution
         mpc_output, state_solution, mpc_stats = self.mpc(mpc_input, mpc_state)
+        self.actual_used_mpc_state = mpc_state
 
         return SacFopActorOutput(
             param,
@@ -203,6 +216,7 @@ class SacFopTrainer(Trainer):
                 action = pi_output.action.cpu().numpy()[0]
                 param = pi_output.param.cpu().numpy()[0]
 
+            # print("weight", param.item(), "log_prob", pi_output.log_prob.item())
             self.report_stats("train_trajectory", {"param": param, "action": action})
             self.report_stats("train_policy_rollout", pi_output.stats)
 
@@ -239,6 +253,23 @@ class SacFopTrainer(Trainer):
 
                 # sample action
                 pi_o = self.pi(o, ps_sol)
+                with torch.no_grad():
+                    pi_o_prime = self.pi(o_prime, ps_sol)
+
+                pi_o_stats = pi_o.stats
+
+                # compute mask
+                mask_status = (pi_o.status == 0) & (pi_o_prime.status == 0)
+
+                # reduce batch
+                o = o[mask_status]
+                a = a[mask_status]
+                r = r[mask_status]
+                o_prime = o_prime[mask_status]
+                te = te[mask_status]
+                pi_o = pi_o.select(mask_status)
+                pi_o_prime = pi_o_prime.select(mask_status)
+
                 log_p = pi_o.log_prob / self.entropy_norm
 
                 # update temperature
@@ -253,16 +284,14 @@ class SacFopTrainer(Trainer):
                 # update critic
                 alpha = self.log_alpha.exp().item()
                 with torch.no_grad():
-                    pi_o_prime = self.pi(o_prime, ps_sol)
                     q_target = torch.cat(
                         self.q_target(o_prime, pi_o_prime.action), dim=1
                     )
                     q_target = torch.min(q_target, dim=1, keepdim=True).values
 
                     # add entropy
-                    q_target = (
-                        q_target - alpha * pi_o_prime.log_prob / self.entropy_norm
-                    )
+                    factor = self.cfg.sac.entropy_reward_bonus / self.entropy_norm
+                    q_target = q_target - alpha * pi_o_prime.log_prob * factor
 
                     target = (
                         r[:, None] + self.cfg.sac.gamma * (1 - te[:, None]) * q_target
@@ -276,37 +305,31 @@ class SacFopTrainer(Trainer):
                 self.q_optim.step()
 
                 # update actor
-                mask_status = pi_o.status == 0
+                # mask_status = pi_o.status == 0
                 q_pi = torch.cat(self.q(o, pi_o.action), dim=1)
                 min_q_pi = torch.min(q_pi, dim=1).values
-                pi_loss = (alpha * log_p - min_q_pi)[mask_status].mean()
+                pi_loss = (alpha * log_p - min_q_pi).mean()
 
                 self.pi_optim.zero_grad()
                 pi_loss.backward()
                 self.pi_optim.step()
 
                 # soft updates
-                for q, q_target in zip(self.q.parameters(), self.q_target.parameters()):
-                    q_target.data = (
-                        self.cfg.sac.tau * q.data
-                        + (1 - self.cfg.sac.tau) * q_target.data
-                    )
+                soft_target_update(self.q, self.q_target, self.cfg.sac.tau)
 
-                report_freq = self.cfg.sac.report_loss_freq * self.cfg.sac.update_freq
-
-                if self.state.step % report_freq == 0:
+                if self.state.step % self.cfg.sac.report_loss_freq == 0:
                     loss_stats = {
                         "q_loss": q_loss.item(),
                         "pi_loss": pi_loss.item(),
                         "alpha": alpha,
                         "q": q.mean().item(),
                         "q_target": target.mean().item(),
-                        "masked_samples": (pi_o.status != 0).float().mean().item(),
+                        "masked_samples_perc": 1 - mask_status.float().mean().item(),
                         "entropy": -log_p.mean().item(),
                     }
                     self.report_stats("loss", loss_stats, self.state.step + 1)
                     self.report_stats(
-                        "train_policy_update", pi_o.stats, self.state.step + 1
+                        "train_policy_update", pi_o_stats, self.state.step + 1
                     )
 
             yield 1

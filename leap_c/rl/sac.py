@@ -7,10 +7,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from leap_c.nn.mlp import MLP, MlpConfig
 from leap_c.nn.gaussian import SquashedGaussian
+from leap_c.nn.mlp import MLP, MlpConfig
+from leap_c.nn.utils import min_max_scaling
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
+from leap_c.rl.utils import soft_target_update
 from leap_c.task import Task
 from leap_c.trainer import BaseConfig, LogConfig, TrainConfig, Trainer, ValConfig
 
@@ -20,6 +22,8 @@ class SacAlgorithmConfig:
     """Contains the necessary information for a SacTrainer.
 
     Attributes:
+        critic_mlp: The configuration for the critic networks.
+        actor_mlp: The configuration for the actor network.
         batch_size: The batch size for training.
         buffer_size: The size of the replay buffer.
         gamma: The discount factor.
@@ -28,6 +32,8 @@ class SacAlgorithmConfig:
         lr_q: The learning rate for the Q networks.
         lr_pi: The learning rate for the policy network.
         lr_alpha: The learning rate for the temperature parameter.
+        init_alpha: The initial temperature parameter.
+        entropy_reward_bonus: Whether to add an entropy bonus to the reward.
         num_critics: The number of critic networks.
         report_loss_freq: The frequency of reporting the loss.
         update_freq: The frequency of updating the networks.
@@ -42,8 +48,9 @@ class SacAlgorithmConfig:
     soft_update_freq: int = 1
     lr_q: float = 1e-4
     lr_pi: float = 3e-4
-    lr_alpha: float = 1e-3  # 1e-4
+    lr_alpha: float = 1e-4
     init_alpha: float = 0.1
+    entropy_reward_bonus: bool = True
     num_critics: int = 2
     report_loss_freq: int = 100
     update_freq: int = 4
@@ -93,9 +100,11 @@ class SacCritic(nn.Module):
                 for qe in self.extractor
             ]
         )
+        self.action_space = env.action_space
 
     def forward(self, x: torch.Tensor, a: torch.Tensor):
-        return [mlp(qe(x), a) for qe, mlp in zip(self.extractor, self.mlp)]
+        a_norm = min_max_scaling(a, self.action_space)  # type: ignore
+        return [mlp(qe(x), a_norm) for qe, mlp in zip(self.extractor, self.mlp)]
 
 
 class SacActor(nn.Module):
@@ -211,7 +220,10 @@ class SacTrainer(Trainer):
                     q_target = torch.min(q_target, dim=1, keepdim=True).values
 
                     # add entropy
-                    q_target = q_target - alpha * log_p_prime
+                    q_target = (
+                        q_target
+                        - alpha * log_p_prime * self.cfg.sac.entropy_reward_bonus
+                    )
 
                     target = (
                         r[:, None] + self.cfg.sac.gamma * (1 - te[:, None]) * q_target
@@ -226,7 +238,7 @@ class SacTrainer(Trainer):
 
                 # update actor
                 q_pi = torch.cat(self.q(o, a_pi), dim=1)
-                min_q_pi = torch.min(q_pi, dim=1).values
+                min_q_pi = torch.min(q_pi, dim=1, keepdim=True).values
                 pi_loss = (alpha * log_p - min_q_pi).mean()
 
                 self.pi_optim.zero_grad()
@@ -234,11 +246,7 @@ class SacTrainer(Trainer):
                 self.pi_optim.step()
 
                 # soft updates
-                for q, q_target in zip(self.q.parameters(), self.q_target.parameters()):
-                    q_target.data = (
-                        self.cfg.sac.tau * q.data
-                        + (1 - self.cfg.sac.tau) * q_target.data
-                    )
+                soft_target_update(self.q, self.q_target, self.cfg.sac.tau)
 
                 report_freq = self.cfg.sac.report_loss_freq * self.cfg.sac.update_freq
 

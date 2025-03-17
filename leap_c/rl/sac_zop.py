@@ -11,19 +11,15 @@ import torch
 import torch.nn as nn
 
 from leap_c.mpc import MpcBatchedState
+from leap_c.nn.gaussian import SquashedGaussian
 from leap_c.nn.mlp import MLP, MlpConfig
 from leap_c.nn.modules import MpcSolutionModule
-from leap_c.nn.gaussian import SquashedGaussian
+from leap_c.nn.utils import min_max_scaling
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
+from leap_c.rl.utils import soft_target_update
 from leap_c.task import Task
-from leap_c.trainer import (
-    BaseConfig,
-    LogConfig,
-    TrainConfig,
-    Trainer,
-    ValConfig,
-)
+from leap_c.trainer import BaseConfig, LogConfig, TrainConfig, Trainer, ValConfig
 
 
 @dataclass(kw_only=True)
@@ -31,6 +27,8 @@ class SacZopAlgorithmConfig:
     """Contains the necessary information for a SacTrainer.
 
     Attributes:
+        critic_mlp: The configuration for the critic networks.
+        actor_mlp: The configuration for the policy network.
         batch_size: The batch size for training.
         buffer_size: The size of the replay buffer.
         gamma: The discount factor.
@@ -39,6 +37,8 @@ class SacZopAlgorithmConfig:
         lr_q: The learning rate for the Q networks.
         lr_pi: The learning rate for the policy network.
         lr_alpha: The learning rate for the temperature parameter.
+        init_alpha: The initial value for the temperature parameter.
+        entropy_reward_bonus: Whether to add an entropy bonus to the reward.
         num_critics: The number of critic networks.
         report_loss_freq: The frequency of reporting the loss.
         update_freq: The frequency of updating the networks.
@@ -55,6 +55,7 @@ class SacZopAlgorithmConfig:
     lr_pi: float = 3e-4  # this can be lowered to make it more stable
     lr_alpha: float = 1e-3  # 1e-4
     init_alpha: float = 0.1
+    entropy_reward_bonus: bool = True
     num_critics: int = 2
     report_loss_freq: int = 100
     update_freq: int = 1
@@ -104,9 +105,11 @@ class SacCritic(nn.Module):
                 for qe in self.extractor
             ]
         )
+        self.param_space = task.param_space
 
-    def forward(self, x: torch.Tensor, a: torch.Tensor):
-        return [mlp(qe(x), a) for qe, mlp in zip(self.extractor, self.mlp)]
+    def forward(self, x: torch.Tensor, p: torch.Tensor):
+        p_norm = min_max_scaling(p, self.param_space)  # type: ignore
+        return [mlp(qe(x), p_norm) for qe, mlp in zip(self.extractor, self.mlp)]
 
 
 class SacZopActorOutput(NamedTuple):
@@ -234,9 +237,10 @@ class SacZopTrainer(Trainer):
             self.report_stats("train_trajectory", {"action": action, "param": param})
             self.report_stats("train_policy_rollout", pi_output.stats)
 
+            obs_prime, reward, is_terminated, is_truncated, info = self.train_env.step(
+                action
+            )
 
-            obs_prime, reward, is_terminated, is_truncated, info = self.train_env.step(action)
-  
             if "episode" in info:
                 self.report_stats("train", info["episode"])
 
@@ -285,9 +289,8 @@ class SacZopTrainer(Trainer):
                     q_target = torch.min(q_target, dim=1, keepdim=True).values
 
                     # add entropy
-                    q_target = (
-                        q_target - alpha * pi_o_prime.log_prob / self.entropy_norm
-                    )
+                    factor = self.cfg.sac.entropy_reward_bonus / self.entropy_norm
+                    q_target = q_target - alpha * pi_o_prime.log_prob * factor
 
                     target = (
                         r[:, None] + self.cfg.sac.gamma * (1 - te[:, None]) * q_target
@@ -302,7 +305,7 @@ class SacZopTrainer(Trainer):
 
                 # update actor
                 q_pi = torch.cat(self.q(o, a_pi), dim=1)
-                min_q_pi = torch.min(q_pi, dim=1).values
+                min_q_pi = torch.min(q_pi, dim=1, keepdim=True).values
                 pi_loss = (alpha * log_p - min_q_pi).mean()
 
                 self.pi_optim.zero_grad()
@@ -310,11 +313,7 @@ class SacZopTrainer(Trainer):
                 self.pi_optim.step()
 
                 # soft updates
-                for q, q_target in zip(self.q.parameters(), self.q_target.parameters()):
-                    q_target.data = (
-                        self.cfg.sac.tau * q.data
-                        + (1 - self.cfg.sac.tau) * q_target.data
-                    )
+                soft_target_update(self.q, self.q_target, self.cfg.sac.tau)
 
                 report_freq = self.cfg.sac.report_loss_freq * self.cfg.sac.update_freq
 
