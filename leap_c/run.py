@@ -67,7 +67,7 @@ def main(
         raise ValueError(f"Output path {output_path} already exists")
 
     task = create_task(task_name)
-    task.mpc.mpc.n_batch = cfg.sac.batch_size  # type:ignore
+    # task.mpc.mpc.n_batch = cfg.sac.batch_size  # type:ignore
 
     print_inputs(
         trainer_name=trainer_name,
