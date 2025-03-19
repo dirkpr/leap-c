@@ -19,9 +19,9 @@ def _cont_f_expl(
     p: dict[str, np.ndarray],
     fix_point: np.ndarray | None = None,
 ) -> np.ndarray:
-    assert all(key in p for key in ["D", "L", "C", "m", "w"]), (
-        "Not all necessary parameters are in p."
-    )
+    assert all(
+        key in p for key in ["D", "L", "C", "m", "w"]
+    ), "Not all necessary parameters are in p."
 
     if fix_point is None:
         fix_point = np.zeros(3, 1)
@@ -156,9 +156,8 @@ class ChainEnv(gym.Env):
         n_mass: int = 3,
         fix_point: np.ndarray | None = None,
         pos_last_ref: np.ndarray | None = None,
-        phi_range: list[tuple[float, float]] = (np.pi / 6, np.pi / 3),
+        phi_range: tuple[float, float] = (np.pi / 6, np.pi / 3),
         theta_range: tuple[float, float] = (-np.pi / 4, np.pi / 4),
-        seed: int | None = None,
     ):
         super().__init__()
 
@@ -210,8 +209,6 @@ class ChainEnv(gym.Env):
         self.phi_range = phi_range
         self.theta_range = theta_range
 
-        self.rng = np.random.default_rng(seed)
-
         # self.ellipsoid_center = self.fix_point
         # self.ellispoid_variability_matrix = np.diag()
 
@@ -253,7 +250,10 @@ class ChainEnv(gym.Env):
     def reset(
         self, *, seed: int | None = None, options: dict | None = None
     ) -> tuple[Any, dict]:  # type: ignore
-        self._np_random = np.random.RandomState(seed)
+        if seed is not None:
+            super().reset(seed=seed)
+            self.observation_space.seed(seed)
+            self.action_space.seed(seed)
         self.state_trajectory = None
         self.state, self.action = self._init_state_and_action()
         self.time = 0.0
@@ -273,8 +273,10 @@ class ChainEnv(gym.Env):
         return self.state
 
     def _init_state_and_action(self):
-        phi = self.rng.uniform(low=self.phi_range[0], high=self.phi_range[1])
-        theta = self.rng.uniform(low=self.theta_range[0], high=self.theta_range[1])
+        phi = self.np_random.uniform(low=self.phi_range[0], high=self.phi_range[1])  # type:ignore
+        theta = self.np_random.uniform(
+            low=self.theta_range[0], high=self.theta_range[1]
+        )  # type:ignore
         p_last = self.ellipsoid.spherical_to_cartesian(phi=phi, theta=theta)
         x_ss, u_ss = self.resting_chain_solver(p_last=p_last)
 
