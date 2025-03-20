@@ -5,7 +5,9 @@ import numpy as np
 from leap_c.examples.quadrotor.utils import quaternion_multiply_casadi, quaternion_rotate_vector_casadi, read_from_yaml
 
 
-def get_rhs_quadrotor(params: Dict, model_fidelity: str = "low", scale_disturbances: int = 1, sym_params: bool = True):
+def get_rhs_quadrotor(params: Dict, model_fidelity: str = "low",
+                      scale_disturbances: int = 1,
+                      sym_params: bool = True):
     """
     Returns the right-hand side of the quadrotor dynamics.
     We model 4 rotors which are controlled by the motor speeds.

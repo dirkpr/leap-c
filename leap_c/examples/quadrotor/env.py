@@ -17,9 +17,11 @@ class QuadrotorStop(gym.Env):
     def __init__(
             self,
             render_mode: str | None = None,
+            verbose: bool = False
     ):
         self.weight_position = 1
         self.fig, self.axes = None, None
+        self.verbose = verbose
 
         self.model_params = read_from_yaml(dirname(abspath(__file__)) + "/model_params.yaml")
 
@@ -88,19 +90,17 @@ class QuadrotorStop(gym.Env):
         trunc = False
 
         if bool(np.isnan(self.x).sum()):  # or (self.x[7:10].sum() <= 1000) and (self.x[7:10].sum() >= -1000):
-            print(f"Truncation due to nans at time {self.t} with state {self.x}")
-            r = -10
+            self.verbose and (f"Truncation due to nans at time {self.t} with state {self.x}")
             trunc = True
             term = True
 
         elif (any(self.x > self.x_high) or any(self.x < self.x_low)):
-            print(f"Truncation due to state limits at time {self.t} with state {self.x}")
-            r = -10
+            self.verbose and print(f"Truncation due to state limits at time {self.t} with state {self.x}")
             trunc = True
             term = True
-        else:
-            r = dt * (self.weight_position * (2 - np.linalg.norm(self.x[:3])))
 
+        #r = dt * (self.weight_position * (2 - np.linalg.norm(self.x[:3])))
+        r = dt * self.weight_position * 2 / (50 * np.linalg.norm(self.x[:3])** 2 + 1)
         if self.t >= self.sim_params["t_sim"]:
             term = True
 

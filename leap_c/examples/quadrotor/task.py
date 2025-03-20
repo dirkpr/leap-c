@@ -16,17 +16,15 @@ from functools import cached_property
 from ...mpc import MpcInput, MpcParameter
 
 
-@register_task("quadrotor_terminal")
+@register_task("quadrotor_terminal_weights")
 class QuadrotorStopTask(Task):
 
     def __init__(self):
-        mpc = QuadrotorMpc(N_horizon=4, params_learnable=["terminal_cost"])
+        mpc = QuadrotorMpc(N_horizon=4, params_learnable=["q_diag_e"])
         mpc_layer = MpcSolutionModule(mpc)
 
-        self.param_low = mpc.ocp.p_global_values
-        self.param_low[14:17] = -1
-        self.param_high = mpc.ocp.p_global_values
-        self.param_high[14:17] = 1
+        self.param_low = mpc.ocp.p_global_values*1e-5
+        self.param_high = mpc.ocp.p_global_values*5
 
         super().__init__(mpc_layer)
 
