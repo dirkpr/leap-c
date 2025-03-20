@@ -452,7 +452,7 @@ def _solve_shared(
     if isinstance(solver, AcadosOcpSolver):
         status = solver.status
         solve_stats["sqp_iter"] = solver.get_stats("sqp_iter")
-        solve_stats["qp_iter"] = solver.get_stats("qp_iter").sum()  # type:ignore
+        # solve_stats["qp_iter"] = solver.get_stats("qp_iter").sum()  # type:ignore
         solve_stats["time_tot"] = solver.get_stats("time_tot")
 
         if backup_fn is not None and iterate is not None and solver.status != 0:
@@ -483,7 +483,7 @@ def _solve_shared(
                     solver,
                 )
             solve_stats["sqp_iter"] += solver.get_stats("sqp_iter")
-            solve_stats["qp_iter"] += solver.get_stats("qp_iter").sum()  # type:ignore
+            # solve_stats["qp_iter"] += solver.get_stats("qp_iter").sum()  # type:ignore
             solve_stats["time_tot"] += solver.get_stats("time_tot")
         else:
             backup_status = None
@@ -511,7 +511,7 @@ def _solve_shared(
             status = ocp_solver.status
             status_batch.append(status)
             stats_batch["sqp_iter"].append(ocp_solver.get_stats("sqp_iter"))
-            stats_batch["qp_iter"].append(ocp_solver.get_stats("qp_iter").sum())  # type:ignore
+            # stats_batch["qp_iter"].append(ocp_solver.get_stats("qp_iter").sum())  # type:ignore
             stats_batch["time_tot"].append(ocp_solver.get_stats("time_tot"))
             if status != 0:
                 any_failed = True
@@ -555,7 +555,7 @@ def _solve_shared(
                     )
                 reattempts += 1
                 stats_batch["sqp_iter"][i] += ocp_solver.get_stats("sqp_iter")
-                stats_batch["qp_iter"][i] += ocp_solver.get_stats("qp_iter").sum()  # type:ignore
+                # stats_batch["qp_iter"][i] += ocp_solver.get_stats("qp_iter").sum()  # type:ignore
                 stats_batch["time_tot"][i] += ocp_solver.get_stats("time_tot")  # type:ignore
 
                 backup_status_batch.append(ocp_solver.status)
