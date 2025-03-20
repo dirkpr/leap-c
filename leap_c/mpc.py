@@ -393,12 +393,15 @@ BROKEN_PROBLEMS = 0
 def get_sample(
     batch_iterate: AcadosOcpFlattenedBatchIterate, i: int
 ) -> AcadosOcpFlattenedIterate:
+    zs = batch_iterate.z[i] if not batch_iterate.z.size == 0 else np.array([])
+    sl = batch_iterate.sl[i] if not batch_iterate.sl.size == 0 else np.array([])
+    su = batch_iterate.su[i] if not batch_iterate.su.size == 0 else np.array([])
     return AcadosOcpFlattenedIterate(
         x=batch_iterate.x[i],
         u=batch_iterate.u[i],
-        z=batch_iterate.z[i],
-        sl=batch_iterate.sl[i],
-        su=batch_iterate.su[i],
+        z=zs,
+        sl=sl,
+        su=su,
         pi=batch_iterate.pi[i],
         lam=batch_iterate.lam[i],
     )
