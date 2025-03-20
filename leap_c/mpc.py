@@ -393,15 +393,12 @@ BROKEN_PROBLEMS = 0
 def get_sample(
     batch_iterate: AcadosOcpFlattenedBatchIterate, i: int
 ) -> AcadosOcpFlattenedIterate:
-    zs = batch_iterate.z[i] if not batch_iterate.z.size == 0 else np.array([])
-    sl = batch_iterate.sl[i] if not batch_iterate.sl.size == 0 else np.array([])
-    su = batch_iterate.su[i] if not batch_iterate.su.size == 0 else np.array([])
     return AcadosOcpFlattenedIterate(
         x=batch_iterate.x[i],
         u=batch_iterate.u[i],
-        z=zs,
-        sl=sl,
-        su=su,
+        z=batch_iterate.z[i],
+        sl=batch_iterate.sl[i],
+        su=batch_iterate.su[i],
         pi=batch_iterate.pi[i],
         lam=batch_iterate.lam[i],
     )
@@ -548,7 +545,7 @@ def _solve_shared(
                         ocp_solver.status,
                         mpc_input.parameters.p_global[i],  # type:ignore
                         mpc_input.x0[i],
-                        get_sample(backup_fn(mpc_input.get_sample(i)), i),  # type:ignore
+                        backup_fn(mpc_input.get_sample(i)),  # type:ignore
                         ocp_solver,
                     )
                 reattempts += 1
