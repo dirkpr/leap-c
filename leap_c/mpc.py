@@ -404,12 +404,17 @@ def get_sample(
     )
 
 
+def activate_globalization(ocp: AcadosOcp):
+    ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
+    ocp.solver_options.globalization = "FUNNEL_L1PEN_LINESEARCH"
+
+
 def save_broken_problem(status, param, x0, inp_iterate, ocp_solver: AcadosOcpSolver):
     from pathlib import Path
 
     global BROKEN_PROBLEMS
     BROKEN_PROBLEMS += 1
-    output_path = Path("./not_converged_problems")
+    output_path = Path("./not_converged_problems_IL")
     output_path.mkdir(parents=True, exist_ok=True)
 
     filename = str(output_path / f"status_{status}_{BROKEN_PROBLEMS}_iterate.json")
@@ -710,6 +715,7 @@ class Mpc(ABC):
             self.ocp_sensitivity = ocp_sensitivity
 
         turn_on_warmstart(self.ocp)
+        activate_globalization(self.ocp)
         # turn_on_warmstart(self.ocp_sensitivity)
 
         # path management
