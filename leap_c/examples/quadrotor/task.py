@@ -23,8 +23,10 @@ class QuadrotorStopTask(Task):
         mpc = QuadrotorMpc(N_horizon=4, params_learnable=["q_diag_e"])
         mpc_layer = MpcSolutionModule(mpc)
 
-        self.param_low = mpc.ocp.p_global_values*1e-5
-        self.param_high = mpc.ocp.p_global_values*5
+        self.q_diag_e = mpc.given_default_param_dict["q_diag_e"]
+
+        self.param_low = mpc.ocp_sensitivity.p_global_values * 1e-5
+        self.param_high = mpc.ocp_sensitivity.p_global_values * 5
 
         super().__init__(mpc_layer)
 
@@ -34,34 +36,23 @@ class QuadrotorStopTask(Task):
         high = self.param_high
         return spaces.Box(low=low, high=high, dtype=np.float32)
 
-    def prepare_mpc_input(self, obs: Any, param_nn: Optional[torch.Tensor] = None, ) -> MpcInput:
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
-        return MpcInput(x0=obs, parameters=mpc_param)
+    def prepare_mpc_input(
+            self,
+            obs: Any,
+            param_nn: Optional[torch.Tensor] = None,
+            action: Optional[torch.Tensor] = None,
+    ) -> MpcInput:
+        if param_nn is None:
+            raise ValueError("Parameter tensor is required for MPC task.")
 
-    def create_env(self, train: bool) -> gym.Env:
-        return QuadrotorStop()
+        # prepare y_ref_e
+        param_W_e = param_nn.detach().cpu().numpy().squeeze()
 
+        mpc_param = MpcParameter(
+            p_global=param_nn,
+            p_W_e=param_W_e,
+        )
 
-@register_task("quadrotor_mass")
-class QuadrotorStopTask(Task):
-
-    def __init__(self):
-        mpc = QuadrotorMpc(N_horizon=4, params_learnable=["m"])
-        mpc_layer = MpcSolutionModule(mpc)
-
-        self.param_low = 0.1 * mpc.ocp.p_global_values
-        self.param_high = 10. * mpc.ocp.p_global_values
-
-        super().__init__(mpc_layer)
-
-    @property
-    def param_space(self) -> spaces.Box:
-        low = self.param_low
-        high = self.param_high
-        return spaces.Box(low=low, high=high, dtype=np.float32)
-
-    def prepare_mpc_input(self, obs: Any, param_nn: Optional[torch.Tensor] = None, ) -> MpcInput:
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
         return MpcInput(x0=obs, parameters=mpc_param)
 
     def create_env(self, train: bool) -> gym.Env:

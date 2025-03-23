@@ -16,13 +16,6 @@ from leap_c.mpc import Mpc, MpcInput
 from leap_c.utils import set_standard_sensitivity_options
 from os.path import dirname, abspath
 
-PARAMS = OrderedDict(
-    [
-        ("m", np.array([0.6])),
-        ("g", np.array([9.81])),
-    ]
-)
-
 
 class QuadrotorMpc(Mpc):
 
@@ -141,6 +134,7 @@ def export_parametric_ocp(
     ######## Process parameters ########
     ocp = translate_learnable_param_to_p_global(nominal_param, params_learnable, ocp)
 
+
     ######## Model ########
     # Quadrotor parameters
     model_params = read_from_yaml(dirname(abspath(__file__)) + "/model_params.yaml")
@@ -162,11 +156,6 @@ def export_parametric_ocp(
     nx, nu, ny, ny_e = ocp.dims.nx, ocp.dims.nu, ocp.dims.nx + ocp.dims.nu, ocp.dims.nx
 
     ######## Cost ########
-    ocp.cost.cost_type = "LINEAR_LS"
-    ocp.model.cost_expr_ext_cost_e = _cost_expr_ext_cost_e(ocp=ocp)
-    ocp.cost.cost_type_e = "EXTERNAL"
-    #ocp.cost.cost_type_e = "LINEAR_LS"
-
     # stage cost
     Q = np.diag([1e4, 1e4, 1e4,
                  1e0, 1e4, 1e4, 1e0,
@@ -187,38 +176,36 @@ def export_parametric_ocp(
     ocp.cost.yref[3] = 1
     ocp.cost.yref[nx:nx + nu] = 970.437
 
-    if False:
-        Qe = 10 * Q
-        ocp.cost.W_e = Qe
+    if sensitivity_ocp:
+        # Sensitivity solver
+        ocp.cost.cost_type = "LINEAR_LS"
+        ocp.cost.cost_type_e = "EXTERNAL"
+        ocp.model.cost_expr_ext_cost_e = _cost_expr_ext_cost_e(ocp=ocp)
+
+        # Solver options
+        ocp.solver_options.hessian_approx = "EXACT"
+        ocp.solver_options.qp_solver_ric_alg = 1
+        ocp.solver_options.qp_solver_cond_N = ocp.solver_options.N_horizon
+        ocp.solver_options.exact_hess_dyn = True
+        ocp.solver_options.exact_hess_cost = True
+        ocp.solver_options.exact_hess_constr = True
+        ocp.solver_options.with_solution_sens_wrt_params = True
+        ocp.solver_options.with_value_sens_wrt_params = True
+        ocp.model.name += "_sensitivity"  # type:ignore
+
+    else:
+        # Forward OCP with SQP and GN Hessian
+        ocp.cost.cost_type = "LINEAR_LS"
+        ocp.cost.cost_type_e = "LINEAR_LS"
+        ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+
+        ocp.cost.W_e = np.diag(nominal_param["q_diag_e"])
         Vx_e = np.zeros((ny_e, nx))
         Vx_e[:nx, :nx] = np.eye(nx)
         ocp.cost.Vx_e = Vx_e
 
-        ocp.cost.yref_e = np.zeros((ny_e,))
-        ocp.cost.yref_e[3] = 1
-
-    #
-    # # append terminal cost values if learnable
-    # if params_learnable is not None and "terminal_cost" in params_learnable:
-    #     q_e_diag_sqrt = ca.SX.sym("q_e_diag", nx)
-    #     Q_sqrt_e = ca.diag(q_e_diag_sqrt)
-    #     xref_e = ca.SX.sym("xref_e", nx)
-    #     ocp.model.p_global = ca.vertcat(ocp.model.p_global, q_e_diag_sqrt, xref_e)
-    #     xref_e_par = np.zeros(nx)
-    #     xref_e_par[3] = 1
-    #     ocp.p_global_values = np.concatenate([ocp.p_global_values, (100 * np.diag(Q)) ** (1 / 2), xref_e_par])
-    #
-    #     ocp.model.cost_expr_ext_cost_e = 0.5 * ca.mtimes([ca.transpose(x - xref_e), Q_sqrt_e.T, Q_sqrt_e, x - xref_e])
-    #     ocp.cost.cost_type_e = "EXTERNAL"
-    # else:
-    #     Qe = 10 * Q
-    #     ocp.cost.W_e = Qe
-    #     Vx_e = np.zeros((ny_e, nx))
-    #     Vx_e[:nx, :nx] = np.eye(nx)
-    #     ocp.cost.Vx_e = Vx_e
-    #
-    #     ocp.cost.yref_e = np.zeros((ny_e,))
-    #     ocp.cost.yref_e[3] = 1
+    ocp.cost.yref_e = np.zeros((ny_e,))
+    ocp.cost.yref_e[3] = 1
 
     # constraints
     ocp.constraints.idxbx = np.array([2])
@@ -233,8 +220,6 @@ def export_parametric_ocp(
     ocp.cost.zu = ocp.cost.zl = np.array([0])
     ocp.cost.Zu = ocp.cost.Zl = np.array([1e10])
 
-
-
     ######## Constraints ########
     ocp.constraints.x0 = np.array([0] * 13)
     ocp.constraints.lbu = np.array([0] * 4)
@@ -242,14 +227,15 @@ def export_parametric_ocp(
     ocp.constraints.idxbu = np.array(range(4))
 
     ######## Solver configuration ########
+    ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.integrator_type = "DISCRETE"
     ocp.solver_options.nlp_solver_type = "SQP"
     ocp.solver_options.nlp_solver_max_iter = 30
-    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+
     ocp.solver_options.sim_method_num_stages = 2
     ocp.solver_options.sim_method_num_steps = 1
 
-    ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
+
 
     if isinstance(ocp.model.p, struct_symSX):
         ocp.model.p = ocp.model.p.cat if ocp.model.p is not None else []
@@ -258,9 +244,6 @@ def export_parametric_ocp(
         ocp.model.p_global = (
             ocp.model.p_global.cat if ocp.model.p_global is not None else None
         )
-
-    if sensitivity_ocp:
-        set_standard_sensitivity_options(ocp)
 
     return ocp
 
