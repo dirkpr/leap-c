@@ -10,7 +10,7 @@ from leap_c.rl.sac import SacBaseConfig
 parser = ArgumentParser()
 parser.add_argument("--output_path", type=Path, default=None)
 parser.add_argument("--device", type=str, default="cpu")
-parser.add_argument("--seed", type=int, default=0)
+parser.add_argument("--seed", type=int, default=1)
 args = parser.parse_args()
 
 
@@ -26,8 +26,8 @@ cfg.log.tensorboard_logger = False
 cfg.sac.entropy_reward_bonus = False  # type: ignore
 cfg.sac.update_freq = 4
 cfg.sac.batch_size = 64
-cfg.sac.lr_pi = 1e-4
-cfg.sac.lr_q = 1e-4
+cfg.sac.lr_pi = 3e-4
+cfg.sac.lr_q = 3e-4
 cfg.sac.lr_alpha = 1e-3
 cfg.sac.init_alpha = 0.10
 
