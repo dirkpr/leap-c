@@ -46,11 +46,13 @@ class QuadrotorStopTask(Task):
             raise ValueError("Parameter tensor is required for MPC task.")
 
         # prepare y_ref_e
-        param_W_e = param_nn.detach().cpu().numpy().squeeze()
+        param_q_e_batch = param_nn.detach().cpu().numpy()
+        b, n = param_q_e_batch.shape
+        param_W_e_batch = param_q_e_batch[:, :, None] * np.eye(n)
 
         mpc_param = MpcParameter(
             p_global=param_nn,
-            p_W_e=param_W_e,
+            p_W_e=param_W_e_batch,
         )
 
         return MpcInput(x0=obs, parameters=mpc_param)

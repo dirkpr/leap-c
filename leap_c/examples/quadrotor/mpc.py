@@ -132,8 +132,11 @@ def export_parametric_ocp(
     ocp.solver_options.tf = N_horizon * dt
 
     ######## Process parameters ########
-    ocp = translate_learnable_param_to_p_global(nominal_param, params_learnable, ocp)
 
+    ocp = translate_learnable_param_to_p_global(nominal_param, params_learnable, ocp)
+    #if not sensitivity_ocp:
+    #    ocp.model.p_global = []
+    #    ocp.p_global_values = np.array([])
 
     ######## Model ########
     # Quadrotor parameters
