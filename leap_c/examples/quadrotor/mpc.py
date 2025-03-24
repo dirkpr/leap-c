@@ -58,7 +58,7 @@ class QuadrotorMpc(Mpc):
                                    1e1, 1e1, 1e3,
                                    1e1, 1e1, 1e1]),
                 "r_diag": np.array([0.06, 0.06, 0.06, 0.06]),
-                "q_diag_e": .1 * np.array([1e4, 1e4, 1e4,
+                "q_diag_e": 10 * np.array([1e4, 1e4, 1e4,
                                             1e0, 1e4, 1e4, 1e0,
                                             1e1, 1e1, 1e3,
                                             1e1, 1e1, 1e1]),
@@ -134,9 +134,6 @@ def export_parametric_ocp(
     ######## Process parameters ########
 
     ocp = translate_learnable_param_to_p_global(nominal_param, params_learnable, ocp)
-    #if not sensitivity_ocp:
-    #    ocp.model.p_global = []
-    #    ocp.p_global_values = np.array([])
 
     ######## Model ########
     # Quadrotor parameters
