@@ -100,7 +100,7 @@ class QuadrotorStop(gym.Env):
             term = True
 
         #r = dt * (self.weight_position * (2 - np.linalg.norm(self.x[:3])))
-        r = dt * self.weight_position * 2 / (50 * np.linalg.norm(self.x[:3])** 2 + 1)
+        r = dt * self.weight_position * 2 / (20 * np.linalg.norm(self.x[:3])** 2 + 1)
         if self.t >= self.sim_params["t_sim"]:
             term = True
 

@@ -67,10 +67,10 @@ class QuadrotorMpc(Mpc):
                                   0, 0, 0,
                                   0, 0, 0]),
                 "uref": np.array([970.437] * 4),
-                "xref_e": np.array([0, 0, 0,
-                                    1, 0, 0, 0,
-                                    0, 0, 0,
-                                    0, 0, 0]),
+                "xref_e": np.array([0., 0., 0.,
+                                    1., 0., 0., 0.,
+                                    0., 0., 0.,
+                                    0., 0., 0.]),
             }
             if params is None else params
         )
@@ -204,8 +204,8 @@ def export_parametric_ocp(
         Vx_e[:nx, :nx] = np.eye(nx)
         ocp.cost.Vx_e = Vx_e
 
-    ocp.cost.yref_e = np.zeros((ny_e,))
-    ocp.cost.yref_e[3] = 1
+        ocp.cost.yref_e = np.zeros((ny_e,))
+        ocp.cost.yref_e[3] = 1
 
     # constraints
     ocp.constraints.idxbx = np.array([2])
@@ -246,11 +246,6 @@ def export_parametric_ocp(
         )
 
     return ocp
-
-def cost_matrix_numpy(nominal_params: dict[str, np.ndarray]) -> np.ndarray:
-    L = np.diag([nominal_params[f"L{i}{i}"].item() for i in range(1, 6)])
-    L[np.tril_indices_from(L, -1)] = nominal_params["Lloweroffdiag"]
-    return L @ L.T
 
 def disc_dyn_expr(rhs, x, u, p, dt: float) -> ca.SX:
     if p is not None:
