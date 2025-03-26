@@ -414,7 +414,7 @@ def save_broken_problem(status, param, x0, inp_iterate, ocp_solver: AcadosOcpSol
 
     global BROKEN_PROBLEMS
     BROKEN_PROBLEMS += 1
-    output_path = Path("./not_converged_problems_QUADROTOR_RELOAD")
+    output_path = Path("./not_converged_problems_QUADROTOR_IL_PRIMAL")
     output_path.mkdir(parents=True, exist_ok=True)
 
     filename = str(output_path / f"status_{status}_{BROKEN_PROBLEMS}_iterate.json")
