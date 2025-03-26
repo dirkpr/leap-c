@@ -474,14 +474,14 @@ def _solve_shared(
             solver.solve()
 
             backup_status = solver.status
-            if backup_status != 0:
-                save_broken_problem(
-                    backup_status,
-                    mpc_input.parameters.p_global,  # type:ignore
-                    mpc_input.x0,
-                    backup_fn(mpc_input),
-                    solver,
-                )
+            # if backup_status != 0:
+            #     save_broken_problem(
+            #         backup_status,
+            #         mpc_input.parameters.p_global,  # type:ignore
+            #         mpc_input.x0,
+            #         backup_fn(mpc_input),
+            #         solver,
+            #     )
             solve_stats["sqp_iter"] += solver.get_stats("sqp_iter")
             # solve_stats["qp_iter"] += solver.get_stats("qp_iter").sum()  # type:ignore
             solve_stats["time_tot"] += solver.get_stats("time_tot")
@@ -515,13 +515,13 @@ def _solve_shared(
             stats_batch["time_tot"].append(ocp_solver.get_stats("time_tot"))
             if status != 0:
                 any_failed = True
-                save_broken_problem(
-                    status,
-                    mpc_input.parameters.p_global[i],  # type:ignore
-                    mpc_input.x0[i],
-                    get_sample(iterate, i),  # type:ignore
-                    ocp_solver,
-                )
+                # save_broken_problem(
+                #     status,
+                #     mpc_input.parameters.p_global[i],  # type:ignore
+                #     mpc_input.x0[i],
+                #     get_sample(iterate, i),  # type:ignore
+                #     ocp_solver,
+                # )
 
         if (
             any_failed and backup_fn is not None and iterate is not None
@@ -545,14 +545,14 @@ def _solve_shared(
                 # Only update the stats if a resolve was attempted
                 if status_batch[i] == 0:
                     continue
-                if ocp_solver.status != 0:
-                    save_broken_problem(
-                        ocp_solver.status,
-                        mpc_input.parameters.p_global[i],  # type:ignore
-                        mpc_input.x0[i],
-                        backup_fn(mpc_input.get_sample(i)),  # type:ignore
-                        ocp_solver,
-                    )
+                # if ocp_solver.status != 0:
+                #     save_broken_problem(
+                #         ocp_solver.status,
+                #         mpc_input.parameters.p_global[i],  # type:ignore
+                #         mpc_input.x0[i],
+                #         backup_fn(mpc_input.get_sample(i)),  # type:ignore
+                #         ocp_solver,
+                #     )
                 reattempts += 1
                 stats_batch["sqp_iter"][i] += ocp_solver.get_stats("sqp_iter")
                 # stats_batch["qp_iter"][i] += ocp_solver.get_stats("qp_iter").sum()  # type:ignore
