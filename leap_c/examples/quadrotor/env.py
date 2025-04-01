@@ -17,9 +17,11 @@ class QuadrotorStop(gym.Env):
     def __init__(
             self,
             render_mode: str | None = None,
-            verbose: bool = False
+            verbose: bool = False,
+            scale_disturbances: float = 0.0,
     ):
         self.weight_position = 1
+        self.weight_constraint = 10
         self.fig, self.axes = None, None
         self.verbose = verbose
 
@@ -31,7 +33,7 @@ class QuadrotorStop(gym.Env):
         }
         x, u, p, rhs, self.rhs_func = get_rhs_quadrotor(self.model_params,
                                                         model_fidelity="high",
-                                                        scale_disturbances=0.0,
+                                                        scale_disturbances=scale_disturbances,
                                                         sym_params=False)
 
         x_high = np.array(
@@ -100,8 +102,12 @@ class QuadrotorStop(gym.Env):
             term = True
 
         #r = dt * (self.weight_position * (2 - np.linalg.norm(self.x[:3])))
-        r = dt * self.weight_position * 2 / (20 * np.linalg.norm(self.x[:3])** 2 + 1)
+        violates_contraint = min(np.sign(self.x[2]+self.model_params["safety_dist"]),0)
+        r = dt * self.weight_position * 2 / (20 * np.linalg.norm(self.x[:3])** 2 + 1) + \
+            dt * violates_contraint * self.weight_constraint
         if self.t >= self.sim_params["t_sim"]:
+            term = True
+        if violates_contraint:
             term = True
 
         self.reset_needed = trunc or term
@@ -120,17 +126,18 @@ class QuadrotorStop(gym.Env):
             raise RuntimeError("The first reset needs to be called with a seed.")
         self.t = 0
 
-        R = 2  # Radius of the sphere
+        Rxy = 2  # Radius of the sphere
+        Rz = 4
 
         # Generate random angles
         phi = np.random.uniform(0, 2 * np.pi)  # Azimuthal angle [0, 2π]
-        cos_theta = np.random.uniform(-1, 1)  # Cosine of polar angle [-1,1]
+        cos_theta = np.random.uniform(0.5, 1)  # Cosine of polar angle [-1,1]
         theta = np.arccos(cos_theta)  # Convert to theta
 
         # Convert to Cartesian coordinates
-        px = R * np.cos(phi) * np.sin(theta)
-        py = R * np.sin(phi) * np.sin(theta)
-        pz = R * np.cos(theta)
+        px = Rxy * np.cos(phi) * np.sin(theta)
+        py = Rxy * np.sin(phi) * np.sin(theta)
+        pz = Rz * np.cos(theta)
 
         self.x = np.array([px, py, pz,
                            1, 0, 0, 0,
@@ -280,7 +287,7 @@ class QuadrotorStop(gym.Env):
 
             # Draw planar surface at z = 0.25
             plane_size = 2.0  # Size of the ground plane
-            plane_z = self.model_params["bound_z"] + drone_size / 2  # Fixed height for the plane
+            plane_z = self.model_params["lower_bound_z"] - drone_size / 2  # Fixed height for the plane
             plane_vertices = np.array([
                 [-plane_size, -plane_size, plane_z],
                 [plane_size, -plane_size, plane_z],

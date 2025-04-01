@@ -7,15 +7,17 @@ from leap_c.examples.quadrotor.mpc import QuadrotorMpc
 
 if __name__ == "__main__":
 
-    env = QuadrotorStop(render_mode="rgb_array")
-    mpc = QuadrotorMpc(N_horizon=3)
+    env = QuadrotorStop(render_mode="rgb_array", scale_disturbances=0.000)#0.001)
+    mpc = QuadrotorMpc(N_horizon=8)
     solver = mpc.ocp_solver
-    render_movie = True
+    render_movie = False
     record_iterate = False
 
     obs, _ = env.reset(seed=random.randint(0, 1000))
     image = env.render()
     done = False
+
+    rewards_sum = 0
 
     # create fig and axis with given size
     if render_movie:
@@ -35,6 +37,7 @@ if __name__ == "__main__":
 
         action = solver.get(0, "u")
         obs, reward, done, _, _ = env.step(action)
+        rewards_sum += reward
         print(f"reward:{reward}")
         if render_movie:
             env.render_mode = "rgb_array"
@@ -42,7 +45,7 @@ if __name__ == "__main__":
             img_display.set_data(image)
             frames.append(image)
             plt.pause(0.01)
-
+    print(f"Total reward: {rewards_sum}")
     if render_movie:
         imageio.mimsave("drone_simulation.mp4", frames, fps=1/env.sim_params["dt"])
         plt.close(fig)
