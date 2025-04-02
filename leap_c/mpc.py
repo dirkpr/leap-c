@@ -202,6 +202,8 @@ def set_ocp_solver_mpc_params(
                     ocp_solver.cost_set(stage, "W", W)
             if mpc_parameter.p_yref is not None:
                 for stage, yref in enumerate(mpc_parameter.p_yref):
+                    if np.isnan(yref).any():
+                        raise ValueError(f"yref contains NaNs at stage {stage}.")
                     ocp_solver.cost_set(stage, "yref", yref)
             if mpc_parameter.p_W_e is not None:
                 ocp_solver.cost_set(ocp_solver.N, "W", mpc_parameter.p_W_e)

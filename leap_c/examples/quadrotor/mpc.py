@@ -207,7 +207,7 @@ def export_parametric_ocp(
 
     # constraints
     ocp.constraints.idxbx = np.array([2])
-    ocp.constraints.lbx = np.array([-model_params["lower_bound_z"]])
+    ocp.constraints.lbx = np.array([model_params["lower_bound_z"]])
     ocp.constraints.ubx = np.array([model_params["upper_bound_z"]])
 
     ocp.constraints.idxbx_e = np.array([2])
