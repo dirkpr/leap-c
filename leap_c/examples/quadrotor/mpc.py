@@ -190,6 +190,7 @@ def export_parametric_ocp(
 
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.with_batch_functionality = True
+    ocp.solver_options.qp_tol = 1e-7
 
     if sensitivity_ocp:
         set_standard_sensitivity_options(ocp)

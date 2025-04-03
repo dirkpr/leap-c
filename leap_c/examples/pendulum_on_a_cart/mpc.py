@@ -28,23 +28,23 @@ PARAMS = OrderedDict(
         (
             "c1",
             np.array([0.0]),
-        ), # position linear cost, only used for EXTERNAL cost
+        ),  # position linear cost, only used for EXTERNAL cost
         (
             "c2",
             np.array([0.0]),
-        ), # theta linear cost, only used for EXTERNAL cost
+        ),  # theta linear cost, only used for EXTERNAL cost
         (
             "c3",
             np.array([0.0]),
-        ), # v linear cost, only used for EXTERNAL cost
+        ),  # v linear cost, only used for EXTERNAL cost
         (
             "c4",
             np.array([0.0]),
-        ), # thetadot linear cost, only used for EXTERNAL cost
+        ),  # thetadot linear cost, only used for EXTERNAL cost
         (
             "c5",
             np.array([0.0]),
-        ), # u linear cost, only used for EXTERNAL cost
+        ),  # u linear cost, only used for EXTERNAL cost
         (
             "xref1",
             np.array([0.0]),
@@ -176,8 +176,14 @@ def f_expl_expr(model: AcadosModel) -> ca.SX:
     f_expl = ca.vertcat(
         v1,
         dtheta,
-        (-m * l * sin_theta * dtheta * dtheta + m * g * cos_theta * sin_theta + F) / denominator,
-        (-m * l * cos_theta * sin_theta * dtheta * dtheta + F * cos_theta + (M + m) * g * sin_theta) / (l * denominator),
+        (-m * l * sin_theta * dtheta * dtheta + m * g * cos_theta * sin_theta + F)
+        / denominator,
+        (
+            -m * l * cos_theta * sin_theta * dtheta * dtheta
+            + F * cos_theta
+            + (M + m) * g * sin_theta
+        )
+        / (l * denominator),
     )
 
     return f_expl  # type:ignore
@@ -202,7 +208,13 @@ def disc_dyn_expr(model: AcadosModel, dt: float) -> ca.SX:
 
 
 def cost_matrix_casadi(model: AcadosModel) -> ca.SX:
-    L = ca.diag(ca.vertcat(*find_param_in_p_or_p_global(["L11", "L22", "L33", "L44", "L55"], model).values()))
+    L = ca.diag(
+        ca.vertcat(
+            *find_param_in_p_or_p_global(
+                ["L11", "L22", "L33", "L44", "L55"], model
+            ).values()
+        )
+    )
     L_offdiag = find_param_in_p_or_p_global(["Lloweroffdiag"], model)["Lloweroffdiag"]
 
     assign_lower_triangular(L, L_offdiag)
@@ -217,15 +229,23 @@ def cost_matrix_numpy(nominal_params: dict[str, np.ndarray]) -> np.ndarray:
 
 
 def yref_numpy(nominal_params: dict[str, np.ndarray]) -> np.ndarray:
-    return np.array([nominal_params[f"xref{i}"] for i in range(1, 5)] + [nominal_params["uref"]]).squeeze()
+    return np.array(
+        [nominal_params[f"xref{i}"] for i in range(1, 5)] + [nominal_params["uref"]]
+    ).squeeze()
 
 
 def yref_casadi(model: AcadosModel) -> ca.SX:
-    return ca.vertcat(*find_param_in_p_or_p_global([f"xref{i}" for i in range(1, 5)] + ["uref"], model).values())  # type:ignore
+    return ca.vertcat(
+        *find_param_in_p_or_p_global(
+            [f"xref{i}" for i in range(1, 5)] + ["uref"], model
+        ).values()
+    )  # type:ignore
 
 
 def c_casadi(model: AcadosModel) -> ca.SX:
-    return ca.vertcat(*find_param_in_p_or_p_global([f"c{i}" for i in range(1, 6)], model).values())  # type:ignore
+    return ca.vertcat(
+        *find_param_in_p_or_p_global([f"c{i}" for i in range(1, 6)], model).values()
+    )  # type:ignore
 
 
 def cost_expr_ext_cost(model: AcadosModel) -> ca.SX:
@@ -276,7 +296,6 @@ def export_parametric_ocp(
 
     ocp.model.x = ca.SX.sym("x", ocp.dims.nx)  # type:ignore
     ocp.model.u = ca.SX.sym("u", ocp.dims.nu)  # type:ignore
-
 
     ocp = translate_learnable_param_to_p_global(
         nominal_param=nominal_param,
@@ -337,7 +356,7 @@ def export_parametric_ocp(
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.qp_solver_ric_alg = 1
     ocp.solver_options.with_batch_functionality = True
-
+    ocp.solver_options.qp_tol = 1e-7
 
     #####################################################
 
@@ -345,6 +364,8 @@ def export_parametric_ocp(
         ocp.model.p = ocp.model.p.cat if ocp.model.p is not None else []
 
     if isinstance(ocp.model.p_global, struct_symSX):
-        ocp.model.p_global = ocp.model.p_global.cat if ocp.model.p_global is not None else None
+        ocp.model.p_global = (
+            ocp.model.p_global.cat if ocp.model.p_global is not None else None
+        )
 
     return ocp
