@@ -72,7 +72,11 @@ class MpcParameter(NamedTuple):
             raise ValueError("Cannot sample from non-batched MpcParameter.")
         p_global = self.p_global[i] if self.p_global is not None else None
         p_stagewise = self.p_stagewise[i] if self.p_stagewise is not None else None
-        p_stagewise_sparse_idx = self.p_stagewise_sparse_idx[i] if self.p_stagewise_sparse_idx is not None else None
+        p_stagewise_sparse_idx = (
+            self.p_stagewise_sparse_idx[i]
+            if self.p_stagewise_sparse_idx is not None
+            else None
+        )
 
         return MpcParameter(
             p_global=p_global,
@@ -194,13 +198,17 @@ def set_ocp_solver_iterate(
         if isinstance(ocp_iterate, AcadosOcpFlattenedIterate):
             ocp_solver.load_iterate_from_flat_obj(ocp_iterate)
         elif ocp_iterate is not None:
-            raise ValueError(f"Expected AcadosOcpFlattenedIterate for an AcadosOcpSolver, got {type(ocp_iterate)}.")
+            raise ValueError(
+                f"Expected AcadosOcpFlattenedIterate for an AcadosOcpSolver, got {type(ocp_iterate)}."
+            )
 
     elif isinstance(ocp_solver, AcadosOcpBatchSolver):
         if isinstance(ocp_iterate, AcadosOcpFlattenedBatchIterate):
             ocp_solver.load_iterate_from_flat_obj(ocp_iterate)
         elif ocp_iterate is not None:
-            raise ValueError(f"Expected AcadosOcpFlattenedBatchIterate for an AcadosOcpBatchSolver, got {type(ocp_iterate)}.")
+            raise ValueError(
+                f"Expected AcadosOcpFlattenedBatchIterate for an AcadosOcpBatchSolver, got {type(ocp_iterate)}."
+            )
     else:
         raise ValueError(
             f"expected AcadosOcpSolver or AcadosOcpBatchSolver, got {type(ocp_solver)}."
@@ -341,6 +349,25 @@ def set_discount_factor(
         raise ValueError(
             f"expected AcadosOcpSolver or AcadosOcpBatchSolver, got {type(ocp_solver)}."
         )
+
+
+BROKEN_PROBLEMS = 0
+
+
+def save_broken_problem(status, param, x0, inp_iterate, ocp_solver: AcadosOcpSolver):
+    from pathlib import Path
+
+    global BROKEN_PROBLEMS
+    BROKEN_PROBLEMS += 1
+    output_path = Path("./not_converged_problems_QUADROTOR_IL_PRIMAL")
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    filename = str(output_path / f"status_{status}_{BROKEN_PROBLEMS}_iterate.json")
+    ocp_solver.load_iterate_from_flat_obj(inp_iterate)
+    ocp_solver.store_iterate(filename=filename, overwrite=True)
+
+    np.save(output_path / f"status_{status}_{BROKEN_PROBLEMS}_param", param)
+    np.save(output_path / f"status_{status}_{BROKEN_PROBLEMS}_x0", x0)
 
 
 def _solve_shared(
@@ -591,26 +618,43 @@ class Mpc(ABC):
 
         if ocp_sensitivity is None:
             # setup OCP for sensitivity solver
-            if ocp.cost.cost_type not in  ["EXTERNAL", "NONLINEAR_LS"] or ocp.cost.cost_type_0 not in ["EXTERNAL", "NONLINEAR_LS", None] or ocp.cost.cost_type_e not in ["EXTERNAL", "NONLINEAR_LS"]:
-                raise ValueError("Automatic derivation of sensitivity problem is only supported for EXTERNAL or NONLINEAR_LS cost types.")
+            if (
+                ocp.cost.cost_type not in ["EXTERNAL", "NONLINEAR_LS"]
+                or ocp.cost.cost_type_0 not in ["EXTERNAL", "NONLINEAR_LS", None]
+                or ocp.cost.cost_type_e not in ["EXTERNAL", "NONLINEAR_LS"]
+            ):
+                raise ValueError(
+                    "Automatic derivation of sensitivity problem is only supported for EXTERNAL or NONLINEAR_LS cost types."
+                )
             self.ocp_sensitivity = deepcopy(ocp)
 
             set_standard_sensitivity_options(self.ocp_sensitivity)
         else:
             self.ocp_sensitivity = ocp_sensitivity
 
-
         if self.ocp.cost.cost_type_0 not in ["EXTERNAL", None]:
-            self.ocp.translate_intial_cost_term_to_external(cost_hessian=ocp.solver_options.hessian_approx)
-            self.ocp_sensitivity.translate_intial_cost_term_to_external(cost_hessian="EXACT")
+            self.ocp.translate_intial_cost_term_to_external(
+                cost_hessian=ocp.solver_options.hessian_approx
+            )
+            self.ocp_sensitivity.translate_intial_cost_term_to_external(
+                cost_hessian="EXACT"
+            )
 
         if self.ocp.cost.cost_type not in ["EXTERNAL"]:
-            self.ocp.translate_intermediate_cost_term_to_external(cost_hessian=ocp.solver_options.hessian_approx)
-            self.ocp_sensitivity.translate_intermediate_cost_term_to_external(cost_hessian="EXACT")
+            self.ocp.translate_intermediate_cost_term_to_external(
+                cost_hessian=ocp.solver_options.hessian_approx
+            )
+            self.ocp_sensitivity.translate_intermediate_cost_term_to_external(
+                cost_hessian="EXACT"
+            )
 
         if self.ocp.cost.cost_type_e not in ["EXTERNAL"]:
-            self.ocp.translate_terminal_cost_term_to_external(cost_hessian=ocp.solver_options.hessian_approx)
-            self.ocp_sensitivity.translate_terminal_cost_term_to_external(cost_hessian="EXACT")
+            self.ocp.translate_terminal_cost_term_to_external(
+                cost_hessian=ocp.solver_options.hessian_approx
+            )
+            self.ocp_sensitivity.translate_terminal_cost_term_to_external(
+                cost_hessian="EXACT"
+            )
 
         turn_on_warmstart(self.ocp)
 
@@ -731,7 +775,9 @@ class Mpc(ABC):
     def default_p_stagewise(self) -> np.ndarray | None:
         """Return the default p_stagewise."""
         return (
-            np.tile(self.ocp.parameter_values, (self.N + 1, 1)) if self.is_model_p_legal(self.ocp_sensitivity.model.p) else None
+            np.tile(self.ocp.parameter_values, (self.N + 1, 1))
+            if self.is_model_p_legal(self.ocp_sensitivity.model.p)
+            else None
         )
 
     @cached_property
