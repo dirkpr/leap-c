@@ -401,13 +401,13 @@ def _solve_shared(
         solve_stats["time_tot"] = solver.get_stats("time_tot")
 
         if backup_fn is not None and iterate is not None and solver.status != 0:
-            save_broken_problem(
-                status,
-                mpc_input.parameters.p_global,  # type:ignore
-                mpc_input.x0,
-                iterate,
-                solver,
-            )
+            # save_broken_problem(
+            #     status,
+            #     mpc_input.parameters.p_global,  # type:ignore
+            #     mpc_input.x0,
+            #     iterate,
+            #     solver,
+            # )
             # Reattempt with backup
             initialize_ocp_solver(
                 ocp_solver=solver,
