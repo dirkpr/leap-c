@@ -57,7 +57,7 @@ class QuadrotorMpc(Mpc):
                                          1e2, 1e2, 1e2,
                                          1e1, 1e1, 1e1]),
                 "r_diag": np.array([0.06, 0.06, 0.06, 0.06]),
-                "q_diag_e": 0 * np.array([1e4, 1e4, 1e4,
+                "q_diag_e": 0.0001 * np.array([1e4, 1e4, 1e4,
                                            1e0, 1e4, 1e4, 1e0,
                                            1e2, 1e2, 1e2,
                                            1e1, 1e1, 1e1]),
@@ -216,7 +216,7 @@ def export_parametric_ocp(
 
     ocp.constraints.idxsbx = np.array([0])
     ocp.cost.zu = ocp.cost.zl = np.array([0])
-    ocp.cost.Zu = ocp.cost.Zl = np.array([1e10])
+    ocp.cost.Zu = ocp.cost.Zl = np.array([1e9])
 
     ######## Constraints ########
     ocp.constraints.x0 = np.array([0] * 13)
@@ -228,7 +228,7 @@ def export_parametric_ocp(
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.integrator_type = "DISCRETE"
     ocp.solver_options.nlp_solver_type = "SQP"
-    ocp.solver_options.nlp_solver_max_iter = 50
+    ocp.solver_options.nlp_solver_max_iter = 200
     ocp.solver_options.num_threads_in_batch_solve = 32
 
     ocp.solver_options.sim_method_num_stages = 2
