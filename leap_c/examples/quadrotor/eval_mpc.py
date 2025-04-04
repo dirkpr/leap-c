@@ -10,7 +10,7 @@ if __name__ == "__main__":
     env = QuadrotorStop(render_mode="rgb_array", scale_disturbances=0.001)#0.001)
     mpc = QuadrotorMpc(N_horizon=8)
     solver = mpc.ocp_solver
-    render_movie = False
+    render_movie = True
     record_iterate = False
 
     obs, _ = env.reset(seed=random.randint(0, 1000))
