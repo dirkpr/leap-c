@@ -20,25 +20,13 @@ from ...mpc import MpcInput, MpcParameter
 @register_task("quadrotor_ref")
 class QuadrotorStopTask(Task):
     def __init__(self):
-        mpc = QuadrotorMpc(N_horizon=9, params_learnable=["xref"])
-        self.uref = np.expand_dims(mpc.params["uref"],0)
+        mpc = QuadrotorMpc(N_horizon=9, params_learnable=["xref1", "xref2", "xref3"])
         mpc_layer = MpcSolutionModule(mpc)
 
         nx, nu, Nhor = mpc.ocp.dims.nx, mpc.ocp.dims.nu, mpc.ocp.dims.N
         self.nx, self.nu, self.Nhor = nx, nu, Nhor
         self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-0.01
         self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+0.01
-
-        self.param_low[0:3] = -1
-        self.param_low[2] = 0.
-        #self.param_low[3:6] = -1
-        #self.param_low[7:10] = -1.
-        #self.param_low[10:] = -1.
-        #
-        self.param_high[0:3] = 1
-        #self.param_high[3:6] = 1
-        #self.param_high[7:10] = 1.
-        #self.param_high[10:] = 1.
 
         super().__init__(mpc_layer)
 
@@ -57,19 +45,8 @@ class QuadrotorStopTask(Task):
         if param_nn is None:
             raise ValueError("Parameter tensor is required for MPC task.")
 
-        # prepare parameters
-        p_xref_batch = param_nn.detach().cpu().numpy()[:, :self.nx, ...]
-        nb, nx = p_xref_batch.shape
-
-        uref = np.repeat(self.uref, nb, axis=0)
-
-        p_yref_batch = np.concatenate((p_xref_batch, uref), axis=1)
-        p_yref_batch = np.expand_dims(p_yref_batch, axis=1)
-        p_yref_batch = np.repeat(p_yref_batch, self.Nhor, axis=1)
-
         mpc_param = MpcParameter(
             p_global=param_nn,
-            p_yref=p_yref_batch,
         )
 
         return MpcInput(x0=obs, parameters=mpc_param)

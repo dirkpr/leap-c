@@ -6,12 +6,13 @@ from typing import Dict, List
 import casadi as ca
 import numpy as np
 import scipy
-from acados_template import AcadosOcp, AcadosOcpSolver, AcadosOcpIterate, AcadosOcpFlattenedIterate
+from acados_template import AcadosOcp, AcadosOcpSolver, AcadosOcpIterate, AcadosOcpFlattenedIterate, AcadosModel
 from casadi.tools import struct_symSX
 
 from leap_c.examples.quadrotor.casadi_models import get_rhs_quadrotor
 from leap_c.examples.quadrotor.utils import read_from_yaml
-from leap_c.examples.util import translate_learnable_param_to_p_global, find_param_in_p_or_p_global
+from leap_c.examples.util import translate_learnable_param_to_p_global, find_param_in_p_or_p_global, \
+    assign_lower_triangular
 from leap_c.mpc import Mpc, MpcInput
 from leap_c.utils import set_standard_sensitivity_options
 from os.path import dirname, abspath
@@ -49,47 +50,50 @@ class QuadrotorMpc(Mpc):
                 if param in params_learnable:
                     raise ValueError(f"{param} cannot be learnable in this example.")
 
-        params = (
-            {
-                # "m": 0.6,
-                "q_diag": 20 * np.array([1e4, 1e4, 1e4,
-                                         1e0, 1e4, 1e4, 1e0,
-                                         1e2, 1e2, 1e2,
-                                         1e1, 1e1, 1e1]),
-                "r_diag": np.array([0.06, 0.06, 0.06, 0.06]),
-                "q_diag_e": 0.0001 * np.array([1e4, 1e4, 1e4,
-                                           1e0, 1e4, 1e4, 1e0,
-                                           1e2, 1e2, 1e2,
-                                           1e1, 1e1, 1e1]),
-                "xref": np.array([0., 0., 0.,
-                                  1., 0., 0., 0.,
-                                  0., 0., 0.,
-                                  0., 0., 0.]),
-                "uref": np.array([970.437] * 4),
-                "xref_e": np.array([0., 0., 0.,
-                                    1., 0., 0., 0.,
-                                    0., 0., 0.,
-                                    0., 0., 0.]),
-            }
-            if params is None else params
-        )
+        params = OrderedDict([
+            ("r_diag", np.array([0.06, 0.06, 0.06, 0.06])),
+            ("xref1", np.array([0.])),#x
+            ("xref2", np.array([0.])),#y
+            ("xref3", np.array([0.])),#z
+            ("xref4", np.array([1.])),
+            ("xref5", np.array([0.])),
+            ("xref6", np.array([0.])),
+            ("xref7", np.array([0.])),
+            ("xref8", np.array([0.])),
+            ("xref9", np.array([0.])),
+            ("xref10", np.array([0.])),
+            ("xref11", np.array([0.])),
+            ("xref12", np.array([0.])),
+            ("xref13", np.array([0.])),
+            ("uref", np.array([970.437] * 4)),
+            ("L11", np.array([np.sqrt(20e4)])),#x
+            ("L22", np.array([np.sqrt(20e4)])),#y
+            ("L33", np.array([np.sqrt(20e4)])),#z
+            ("L44", np.array([np.sqrt(20e0)])),#qw
+            ("L55", np.array([np.sqrt(20e4)])),#qx
+            ("L66", np.array([np.sqrt(20e4)])),#qy
+            ("L77", np.array([np.sqrt(20e0)])),#qz
+            ("L88", np.array([np.sqrt(20e2)])),#vx
+            ("L99", np.array([np.sqrt(20e2)])),#vy
+            ("L1010", np.array([np.sqrt(20e2)])),#vz
+            ("L1111", np.array([np.sqrt(20e1)])),#domega1
+            ("L1212", np.array([np.sqrt(20e1)])),#domega2
+            ("L1313", np.array([np.sqrt(20e1)])),#domega3
+            ("L1414", np.array([np.sqrt(6e-2)])),#r1
+            ("L1515", np.array([np.sqrt(6e-2)])),#r2
+            ("L1616", np.array([np.sqrt(6e-2)])),#r3
+            ("L1717", np.array([np.sqrt(6e-2)])),#r4
+            ("Lloweroffdiag", np.array([0.0] * (16 + 15 + 14 + 13 + 12 + 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2 + 1))),
+        ]) if params is None else params
+
         self.params = params
         params_learnable = params_learnable if params_learnable is not None else []
         print("learnable_params: ", params_learnable)
-
 
         ocp = export_parametric_ocp(
             name="quadrotor_lls",
             N_horizon=N_horizon,
             sensitivity_ocp=False,
-            nominal_param=params,
-            params_learnable=params_learnable,
-        )
-
-        ocp_sens = export_parametric_ocp(
-            name="quadrotor_lls_exact",
-            N_horizon=N_horizon,
-            sensitivity_ocp=True,
             nominal_param=params,
             params_learnable=params_learnable,
         )
@@ -109,10 +113,8 @@ class QuadrotorMpc(Mpc):
 
         super().__init__(
             ocp=ocp,
-            ocp_sensitivity=ocp_sens,
             discount_factor=discount_factor,
             n_batch=n_batch,
-            init_state_fn=None,
         )
 
 
@@ -153,57 +155,20 @@ def export_parametric_ocp(
 
     ocp.dims.nx = x.size()[0]
     ocp.dims.nu = u.size()[0]
-    nx, nu, ny, ny_e = ocp.dims.nx, ocp.dims.nu, ocp.dims.nx + ocp.dims.nu, ocp.dims.nx
 
-    ######## Cost ########
-    if sensitivity_ocp:
-        # Sensitivity solver
-        ocp.cost.cost_type = "EXTERNAL"
-        #ocp.cost.cost_type_e = "EXTERNAL"
-        ocp.cost.cost_type_e = "LINEAR_LS"
-        ocp.model.cost_expr_ext_cost = _cost_expr_ext_cost(ocp=ocp)
-        #ocp.model.cost_expr_ext_cost_e = _cost_expr_ext_cost_e(ocp=ocp)
-        Q_e = np.diag(nominal_param["q_diag_e"])
-        ocp.cost.W_e = Q_e
-        Vx_e = np.zeros((ny_e, nx))
-        Vx_e[:nx, :nx] = np.eye(nx)
-        ocp.cost.Vx_e = Vx_e
-        ocp.cost.yref_e = nominal_param["xref"]
+    # Forward OCP with SQP and GN Hessian
+    ocp.cost.cost_type = "NONLINEAR_LS"
+    ocp.cost.cost_type_e = "NONLINEAR_LS"
 
-        # Solver options
-        ocp.solver_options.hessian_approx = "EXACT"
-        ocp.solver_options.qp_solver_ric_alg = 1
-        ocp.solver_options.qp_solver_cond_N = ocp.solver_options.N_horizon
-        ocp.solver_options.exact_hess_dyn = True
-        ocp.solver_options.exact_hess_cost = True
-        ocp.solver_options.exact_hess_constr = True
-        ocp.solver_options.with_solution_sens_wrt_params = True
-        ocp.solver_options.with_value_sens_wrt_params = True
-        ocp.model.name += "_sensitivity"  # type:ignore
+    ocp.cost.W = cost_matrix_casadi(ocp.model)
+    ocp.cost.yref = yref_casadi(ocp.model)
+    ocp.model.cost_y_expr = ca.vertcat(ocp.model.x, ocp.model.u)
 
-    else:
-        # Forward OCP with SQP and GN Hessian
-        ocp.cost.cost_type = "LINEAR_LS"
-        ocp.cost.cost_type_e = "LINEAR_LS"
-        ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+    ocp.cost.W_e = ocp.cost.W[:13, :13]
+    ocp.cost.yref_e = ocp.cost.yref[:13]
+    ocp.model.cost_y_expr_e = ocp.model.x
 
-        Q = np.diag(nominal_param["q_diag"])
-        R = np.diag(nominal_param["r_diag"])
-        ocp.cost.W = scipy.linalg.block_diag(Q, R)
-        ocp.cost.Vx = np.zeros((ny, nx))
-        ocp.cost.Vx[:nx, :nx] = np.eye(nx)
-        Vu = np.zeros((ny, nu))
-        Vu[nx: nx + nu, :] = np.eye(nu)
-        ocp.cost.Vu = Vu
-        ocp.cost.yref = np.array(nominal_param["xref"].tolist() + nominal_param["uref"].tolist())
-
-        Q_e = np.diag(nominal_param["q_diag_e"])
-        ocp.cost.W_e = Q_e
-        Vx_e = np.zeros((ny_e, nx))
-        Vx_e[:nx, :nx] = np.eye(nx)
-        ocp.cost.Vx_e = Vx_e
-
-        ocp.cost.yref_e = nominal_param["xref"]
+    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
 
     # constraints
     ocp.constraints.idxbx = np.array([2])
@@ -234,8 +199,6 @@ def export_parametric_ocp(
     ocp.solver_options.sim_method_num_stages = 2
     ocp.solver_options.sim_method_num_steps = 1
 
-
-
     if isinstance(ocp.model.p, struct_symSX):
         ocp.model.p = ocp.model.p.cat if ocp.model.p is not None else []
 
@@ -245,6 +208,7 @@ def export_parametric_ocp(
         )
 
     return ocp
+
 
 def disc_dyn_expr(rhs, x, u, p, dt: float) -> ca.SX:
     if p is not None:
@@ -260,67 +224,18 @@ def disc_dyn_expr(rhs, x, u, p, dt: float) -> ca.SX:
         k3 = ode(x + dt / 2 * k2, u)  # type:ignore
         k4 = ode(x + dt * k3, u)  # type:ignore
 
-
     return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
-def _create_diag_matrix(
-        _q_sqrt: np.ndarray | ca.SX,
-) -> np.ndarray | ca.SX:
-    if any(isinstance(i, ca.SX) for i in [_q_sqrt]):
-        return ca.diag(_q_sqrt)
-    else:
-        return np.diag(_q_sqrt)
+
+def yref_casadi(model: AcadosModel) -> ca.SX:
+    return ca.vertcat(
+        *find_param_in_p_or_p_global([f"xref{i}" for i in range(1, 14)] + ["uref"], model).values())  # type:ignore
 
 
-def _cost_expr_ext_cost_old(ocp: AcadosOcp) -> ca.SX:
-    x = ocp.model.x
-    u = ocp.model.u
+def cost_matrix_casadi(model: AcadosModel) -> ca.SX:
+    L = ca.diag(ca.vertcat(*find_param_in_p_or_p_global([f"L{i}{i}" for i in range(1, 18)], model).values()))
+    L_offdiag = find_param_in_p_or_p_global(["Lloweroffdiag"], model)["Lloweroffdiag"]
 
-    Q_sqrt = _create_diag_matrix(
-        find_param_in_p_or_p_global(["q_diag"], ocp.model)["q_diag"]
-    )
-    R_sqrt = _create_diag_matrix(
-        find_param_in_p_or_p_global(["r_diag"], ocp.model)["r_diag"]
-    )
+    assign_lower_triangular(L, L_offdiag)
 
-    xref = find_param_in_p_or_p_global(["xref"], ocp.model)["xref"]
-    uref = find_param_in_p_or_p_global(["uref"], ocp.model)["uref"]
-
-    td = ocp.solver_options.tf / ocp.solver_options.N_horizon
-
-    return td * 0.5 * (
-            ca.mtimes([ca.transpose(x - xref), Q_sqrt.T, Q_sqrt, x - xref])
-            + ca.mtimes([ca.transpose(u - uref), R_sqrt.T, R_sqrt, u - uref])
-    )
-
-
-def _cost_expr_ext_cost_e(ocp: AcadosOcp) -> ca.SX:
-    x = ocp.model.x
-
-    Q_e = _create_diag_matrix(
-        find_param_in_p_or_p_global(["q_diag_e"], ocp.model)["q_diag_e"]
-    )
-
-    xref_e = find_param_in_p_or_p_global(["xref_e"], ocp.model)["xref_e"]
-
-    return 0.5 * ca.mtimes([ca.transpose(x - xref_e), Q_e, x - xref_e])
-
-
-def _cost_expr_ext_cost(ocp: AcadosOcp) -> ca.SX:
-    x = ocp.model.x
-    u = ocp.model.u
-
-    Q = _create_diag_matrix(
-        find_param_in_p_or_p_global(["q_diag"], ocp.model)["q_diag"]
-    )
-    R = _create_diag_matrix(
-        find_param_in_p_or_p_global(["r_diag"], ocp.model)["r_diag"]
-    )
-
-    xref = find_param_in_p_or_p_global(["xref"], ocp.model)["xref"]
-    uref = find_param_in_p_or_p_global(["uref"], ocp.model)["uref"]
-
-    td = ocp.solver_options.tf / ocp.solver_options.N_horizon
-
-    return (0.5 * td * ca.mtimes([ca.transpose(x - xref), Q, x - xref]) +
-            0.5 * td * ca.mtimes([ca.transpose(u - uref), R, u - uref]))
+    return L @ L.T
