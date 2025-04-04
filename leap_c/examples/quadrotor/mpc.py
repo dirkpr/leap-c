@@ -216,7 +216,7 @@ def export_parametric_ocp(
 
     ocp.constraints.idxsbx = np.array([0])
     ocp.cost.zu = ocp.cost.zl = np.array([0])
-    ocp.cost.Zu = ocp.cost.Zl = np.array([1e9])
+    ocp.cost.Zu = ocp.cost.Zl = np.array([1e7])
 
     ######## Constraints ########
     ocp.constraints.x0 = np.array([0] * 13)

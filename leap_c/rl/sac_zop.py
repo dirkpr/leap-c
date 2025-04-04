@@ -240,6 +240,7 @@ class SacZopTrainer(Trainer):
             obs_prime, reward, is_terminated, is_truncated, info = self.train_env.step(
                 action
             )
+            #reward -= self.pi.mpc.mpc.ocp_solver.get_stats('nlp_iter')
 
             if "episode" in info:
                 self.report_stats("train", info["episode"])

@@ -224,6 +224,7 @@ class SacFopTrainer(Trainer):
                 action
             )
 
+            #todo: the following does not change the logged reward?
             #reward -= self.pi.mpc.mpc.ocp_solver.get_stats('nlp_iter')/50
             if "episode" in info:
                 self.report_stats("train", info["episode"])

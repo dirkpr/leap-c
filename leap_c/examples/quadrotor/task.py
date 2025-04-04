@@ -29,16 +29,16 @@ class QuadrotorStopTask(Task):
         self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-0.01
         self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+0.01
 
-        self.param_low[0:3] = -0.5
-        self.param_low[2] = -0.3
+        self.param_low[0:3] = -1
+        self.param_low[2] = 0.
         #self.param_low[3:6] = -1
-        self.param_low[7:10] = -1.
-        self.param_low[10:] = -1.
+        #self.param_low[7:10] = -1.
+        #self.param_low[10:] = -1.
         #
-        self.param_high[0:3] = 0.5
+        self.param_high[0:3] = 1
         #self.param_high[3:6] = 1
-        self.param_high[7:10] = 1.
-        self.param_high[10:] = 1.
+        #self.param_high[7:10] = 1.
+        #self.param_high[10:] = 1.
 
         super().__init__(mpc_layer)
 
