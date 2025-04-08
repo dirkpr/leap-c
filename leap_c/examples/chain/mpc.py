@@ -237,7 +237,7 @@ def set_ocp_solver_options(ocp: AcadosOcp, exact_hess_dyn: bool):
     ocp.solver_options.qp_solver_ric_alg = 1
     ocp.solver_options.with_value_sens_wrt_params = True
     ocp.solver_options.with_solution_sens_wrt_params = True
-    ocp.solver_options.tol = 1e-6  # Is default
+    ocp.solver_options.with_batch_functionality = True
     ocp.solver_options.qp_tol = 1e-7
 
 
