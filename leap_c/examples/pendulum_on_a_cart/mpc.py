@@ -111,7 +111,7 @@ class PendulumOnCartMPC(AcadosOcpSolverManager):
         T_horizon: float = 1.0,
         Fmax: float = 80.0,
         discount_factor: float = 0.99,
-        n_batch: int = 64,
+        N_max_batch: int = 64,
         exact_hess_dyn: bool = True,
         cost_type: str = "NONLINEAR_LS",
     ):
@@ -127,8 +127,7 @@ class PendulumOnCartMPC(AcadosOcpSolverManager):
                 One step in the horizon will equal T_horizon/N_horizon simulation time.
             Fmax: The maximum force that can be applied to the cart.
             discount_factor: The discount factor for the cost.
-            n_batch: The batch size the MPC should be able to process
-                (currently this is static).
+            N_max_batch: The batch size the MPC should be able to process at maximum.
             exact_hess_dyn: If False, the contributions of the dynamics will be left out of the Hessian.
             cost_type: The type of cost to use, either "EXTERNAL" or "NONLINEAR_LS".
         """
@@ -151,7 +150,7 @@ class PendulumOnCartMPC(AcadosOcpSolverManager):
         super().__init__(
             ocp=ocp,
             discount_factor=discount_factor,
-            n_batch=n_batch,
+            N_max_batch=N_max_batch,
         )
 
 

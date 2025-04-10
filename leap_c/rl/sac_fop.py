@@ -1,6 +1,5 @@
 """Provides a trainer for a Soft Actor-Critic algorithm that uses a differentiable MPC
 layer for the policy network."""
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, NamedTuple

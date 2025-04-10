@@ -23,7 +23,6 @@ class PointMassMPC(AcadosOcpSolverManager):
         N_horizon: int = 20,
         T_horizon: float = 2.0,
         discount_factor: float = 0.99,
-        n_batch: int = 64,
         export_directory: Path | None = None,
         export_directory_sensitivity: Path | None = None,
         throw_error_if_u0_is_outside_ocp_bounds: bool = True,
@@ -62,7 +61,6 @@ class PointMassMPC(AcadosOcpSolverManager):
         self.given_default_param_dict = params
         super().__init__(
             ocp=ocp,
-            n_batch=n_batch,
             export_directory=export_directory,
             export_directory_sensitivity=export_directory_sensitivity,
             throw_error_if_u0_is_outside_ocp_bounds=throw_error_if_u0_is_outside_ocp_bounds,

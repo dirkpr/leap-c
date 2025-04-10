@@ -151,6 +151,7 @@ def _solve_shared(
     solver: AcadosOcpSolver | AcadosOcpBatchSolver,
     sensitivity_solver: AcadosOcpSolver | AcadosOcpBatchSolver | None,
     mpc_input: AcadosOcpInput,
+    mpc_state: AcadosOcpSolverState | None,
     backup_fn: Callable[[AcadosOcpInput], AcadosOcpSolverState] | None,
     throw_error_if_u0_is_outside_ocp_bounds: bool = True,
 ) -> dict[str, Any]:
@@ -363,7 +364,7 @@ class AcadosOcpSolverManager(ABC):
         init_state_fn: (
                 Callable[[AcadosOcpInput], AcadosOcpSolverState] | None
         ) = None,
-        n_batch: int = 256,
+        N_max_batch: int = 512,
         num_threads_in_batch_methods: int = 1,
         export_directory: Path | None = None,
         export_directory_sensitivity: Path | None = None,
@@ -379,7 +380,7 @@ class AcadosOcpSolverManager(ABC):
                 For an example of how to set up other cost types refer, e.g., to examples/pendulum_on_cart.py .
             discount_factor: Discount factor. If None, acados default cost scaling is used, i.e. dt for intermediate stages, 1 for terminal stage.
             init_state_fn: Function to use as default iterate initialization for the acados. If None, the acados iterate is initialized with zeros.
-            n_batch: Number of batched solvers to use.
+            N_max_batch: Number of batched solvers to use at maximum.
             num_threads_in_batch_methods: Number of threads to use in the batch methods.
             export_directory: Directory to export the generated code.
             export_directory_sensitivity: Directory to export the generated
@@ -430,7 +431,7 @@ class AcadosOcpSolverManager(ABC):
 
         self.param_labels = SX_to_labels(self.ocp.model.p_global)
 
-        self.n_batch: int = n_batch
+        self.N_max_batch: int = N_max_batch
         self._num_threads_in_batch_methods: int = num_threads_in_batch_methods
 
         self.throw_error_if_u0_is_outside_ocp_bounds = (
@@ -438,7 +439,6 @@ class AcadosOcpSolverManager(ABC):
         )
 
         self.last_call_stats: dict = dict()
-        self.last_call_state: MpcSingleState | AcadosOcpSolverState
 
     @cached_property
     def ocp_solver(self) -> AcadosOcpSolver:
@@ -468,7 +468,7 @@ class AcadosOcpSolverManager(ABC):
         ocp.model.name += "_batch"  # type:ignore
 
         batch_solver = self.afm_batch.setup_acados_ocp_batch_solver(
-            ocp, self.n_batch, self._num_threads_in_batch_methods
+            ocp, self.N_max_batch, self._num_threads_in_batch_methods
         )
 
         if self._discount_factor is not None:
@@ -485,7 +485,7 @@ class AcadosOcpSolverManager(ABC):
         ocp.model.name += "_batch"  # type:ignore
 
         batch_solver = self.afm_sens_batch.setup_acados_ocp_batch_solver(
-            ocp, self.n_batch, self._num_threads_in_batch_methods
+            ocp, self.N_max_batch, self._num_threads_in_batch_methods
         )
 
         if self._discount_factor is not None:
@@ -563,61 +563,6 @@ class AcadosOcpSolverManager(ABC):
         else:
             raise ValueError(f"Unknown case for model_p, type is {type(model_p)}")
 
-    def state_value(
-        self, state: np.ndarray, p_global: np.ndarray | None, sens: bool = False
-    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
-        """
-        # TODO: Discuss removing this method.
-
-        Compute the value function for the given state.
-
-        Args:
-            state: The state for which to compute the value function.
-
-        Returns:
-            The value function, dvalue_dp_global if requested, and the status of the computation (whether it succeded, etc.).
-        """
-
-        mpc_input = AcadosOcpInput(x0=state, parameters=AcadosOcpParameter(p_global=p_global))
-        mpc_output = self.__call__(mpc_input=mpc_input, dvdp=sens)
-
-        return (
-            mpc_output.V,
-            mpc_output.dvalue_dp_global,
-            mpc_output.status,
-        )  # type:ignore
-
-    def state_action_value(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        p_global: np.ndarray | None,
-        sens: bool = False,
-    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
-        """
-        # TODO: Discuss removing this method.
-
-        Compute the state-action value function for the given state and action.
-
-        Args:
-            state: The state for which to compute the value function.
-            action: The action for which to compute the value function.
-
-        Returns:
-            The state-action value function, dQ_dp_global if requested, and the status of the computation (whether it succeded, etc.).
-        """
-
-        mpc_input = AcadosOcpInput(
-            x0=state, u0=action, parameters=AcadosOcpParameter(p_global=p_global)
-        )
-        mpc_output = self.__call__(mpc_input=mpc_input, dvdp=sens)
-
-        return (
-            mpc_output.Q,
-            mpc_output.dvalue_dp_global,
-            mpc_output.status,
-        )  # type:ignore
-
     def policy(
         self,
         state: np.ndarray,
@@ -658,7 +603,7 @@ class AcadosOcpSolverManager(ABC):
         dvdu: bool = False,
         dvdp: bool = False,
         use_adj_sens: bool = True,
-    ) -> AcadosOcpOutput:
+    ) -> tuple[AcadosOcpOutput, AcadosOcpSolverState]:
         """Solve the OCP for the given initial state and parameters.
 
         If an mpc_state is given and the acados does not converge, the acados does a
@@ -667,8 +612,6 @@ class AcadosOcpSolverManager(ABC):
 
         Note:
             Information of this call is stored in the public member self.last_call_stats.
-            The solution state of this call is stored in the public member
-                self.last_call_state.
 
         Args:
             mpc_input: The input of the MPC controller.
@@ -689,33 +632,6 @@ class AcadosOcpSolverManager(ABC):
         Returns:
             A collection of outputs from the MPC controller.
         """
-
-
-        mpc_output, mpc_state = self._batch_solve(
-            mpc_input=mpc_input,
-            mpc_state=mpc_state,  # type: ignore
-            dudx=dudx,
-            dudp=dudp,
-            dvdx=dvdx,
-            dvdu=dvdu,
-            dvdp=dvdp,
-            use_adj_sens=use_adj_sens,
-        )
-        self.last_call_state = mpc_state
-
-        return mpc_output
-
-    def _solve(
-        self,
-        mpc_input: AcadosOcpInput,
-        mpc_state: AcadosOcpSolverState | None = None,
-        dudx: bool = False,
-        dudp: bool = False,
-        dvdx: bool = False,
-        dvdu: bool = False,
-        dvdp: bool = False,
-        use_adj_sens: bool = True,
-    ) -> tuple[AcadosOcpOutput, AcadosOcpFlattenedBatchIterate]:
         if mpc_input.u0 is None and dvdu:
             raise ValueError("dvdu is only allowed if u0 is set in the input.")
 
@@ -774,7 +690,7 @@ class AcadosOcpSolverManager(ABC):
                 if use_adj_sens:
                     single_seed = np.eye(self.ocp.dims.nu)
                     seed_vec = np.repeat(
-                        single_seed[np.newaxis, :, :], self.n_batch, axis=0
+                        single_seed[np.newaxis, :, :], self.N_max_batch, axis=0
                     )
 
                     kw["du0_dp_global"] = (
@@ -797,10 +713,10 @@ class AcadosOcpSolverManager(ABC):
                             )["sens_u"]
                             for ocp_sensitivity_solver in self.ocp_batch_sensitivity_solver.ocp_solvers
                         ]
-                    ).reshape(self.n_batch, self.ocp.dims.nu, self.p_global_dim)  # type:ignore
+                    ).reshape(self.N_max_batch, self.ocp.dims.nu, self.p_global_dim)  # type:ignore
 
                 assert kw["du0_dp_global"].shape == (
-                    self.n_batch,
+                    self.N_max_batch,
                     self.ocp.dims.nu,
                     self.p_global_dim,
                 )

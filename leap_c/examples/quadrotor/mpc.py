@@ -76,7 +76,7 @@ class QuadrotorMpc(AcadosOcpSolverManager):
             ocp=ocp,
             ocp_sensitivity=ocp_sens,
             discount_factor=discount_factor,
-            n_batch=n_batch,
+            max_batch=n_batch,
             init_state_fn=None,
         )
 

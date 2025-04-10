@@ -94,7 +94,7 @@ def n_batch() -> int:
 
 
 @pytest.fixture(scope="session")
-def learnable_point_mass_mpc_different_params(n_batch: int) -> PointMassMPC:
+def learnable_point_mass_mpc_different_params() -> PointMassMPC:
     return PointMassMPC(
         learnable_params=[
             "m",
@@ -105,13 +105,12 @@ def learnable_point_mass_mpc_different_params(n_batch: int) -> PointMassMPC:
             "xref_e",
             "u_wind",
         ],
-        n_batch=n_batch,
     )
 
 
 @pytest.fixture(scope="session")
-def learnable_point_mass_mpc_m(n_batch: int) -> PointMassMPC:
-    return PointMassMPC(learnable_params=["m"], n_batch=n_batch)
+def learnable_point_mass_mpc_m() -> PointMassMPC:
+    return PointMassMPC(learnable_params=["m"])
 
 
 @pytest.fixture(scope="session")
