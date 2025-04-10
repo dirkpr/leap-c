@@ -25,8 +25,8 @@ class QuadrotorStopTask(Task):
 
         nx, nu, Nhor = mpc.ocp.dims.nx, mpc.ocp.dims.nu, mpc.ocp.dims.N
         self.nx, self.nu, self.Nhor = nx, nu, Nhor
-        self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-3#-3
-        self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+3#+3
+        self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-1#-3
+        self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+1#+3
 
         super().__init__(mpc_layer)
 
