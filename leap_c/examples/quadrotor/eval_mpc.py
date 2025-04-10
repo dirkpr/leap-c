@@ -7,12 +7,12 @@ from leap_c.examples.quadrotor.mpc import QuadrotorMpc
 
 if __name__ == "__main__":
 
-    env = QuadrotorStop(render_mode="rgb_array", scale_disturbances=0.001)#0.001)
-    mpc = QuadrotorMpc(N_horizon=8)
+    env = QuadrotorStop(render_mode="rgb_array", scale_disturbances=0.0000)#0.001)
+    mpc = QuadrotorMpc(N_horizon=9)
     solver = mpc.ocp_solver
     render_movie = True
     record_iterate = False
-    Niter = 1
+    Niter = 10
     if Niter>5:
         render_movie=False
     for i in range(Niter):

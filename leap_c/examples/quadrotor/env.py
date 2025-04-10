@@ -102,8 +102,10 @@ class QuadrotorStop(gym.Env):
             term = True
 
         #r = dt * (self.weight_position * (2 - np.linalg.norm(self.x[:3])))
-        violates_contraint = min(np.sign(self.x[2]+self.model_params["safety_dist"]),0)
-        r = dt * self.weight_position * 2 / (20 * np.linalg.norm(self.x[:3])** 2 + 1) + \
+        violates_contraint =  min(np.sign(-self.x[2]+self.model_params["safety_dist"]),0)
+        #r = dt * self.weight_position * 2 / (10 * np.linalg.norm(self.x[:3])** 2 + 1) + \
+        #    dt * violates_contraint * self.weight_constraint
+        r = dt * self.weight_position * (2-np.linalg.norm(self.x[:3]))+\
             dt * violates_contraint * self.weight_constraint
         if self.t >= self.sim_params["t_sim"]:
             term = True
@@ -131,7 +133,7 @@ class QuadrotorStop(gym.Env):
 
         # Generate random angles
         phi = np.random.uniform(0, 2 * np.pi)  # Azimuthal angle [0, 2π]
-        cos_theta = np.random.uniform(0.5, 1)  # Cosine of polar angle [-1,1]
+        cos_theta = np.random.uniform(-1, 0)  # Cosine of polar angle [-1,1]
         theta = np.arccos(cos_theta)  # Convert to theta
 
         # Convert to Cartesian coordinates

@@ -229,8 +229,19 @@ class SacFopTrainer(Trainer):
                 action
             )
 
-            #todo: the following does not change the logged reward?
-            #reward -= self.pi.mpc.mpc.ocp_solver.get_stats('nlp_iter')/50
+            # todo: the following does not change the logged reward?
+            #nlp_iter_reward = - 0.0 * self.pi.mpc.mpc.ocp_solver.get_stats('nlp_iter')
+            #qp_iter = self.pi.mpc.mpc.ocp_solver.get_stats('qp_iter')
+            #qp_iter_reward = -0.04 * np.sum(qp_iter)
+            #qp_iter_reward = (80-np.sum(qp_iter))/80*10
+            #print(qp_iter_reward)
+            #solver_fail_reward = -10. * np.sum(self.pi.mpc.mpc.ocp_solver.get_stats('qp_stat') == 3)
+            #print(self.pi.mpc.mpc.ocp_solver.get_stats('qp_stat'))
+
+            #reward += (nlp_iter_reward + qp_iter_reward + solver_fail_reward)
+            #self.report_stats("train_trajectory", {"nlp_iter_reward": nlp_iter_reward})
+            #self.report_stats("train_trajectory", {"qp_iter_reward": qp_iter_reward})
+            #self.report_stats("train_trajectory", {"solver_fail_reward": solver_fail_reward})
             if "episode" in info:
                 self.report_stats("train", info["episode"])
 
@@ -266,8 +277,9 @@ class SacFopTrainer(Trainer):
                 pi_o_stats = pi_o.stats
 
                 # compute mask
+                #mask_status = ((pi_o.status == 0) | (pi_o.status == 2)) & (
+                #        (pi_o_prime.status == 0) | (pi_o_prime.status == 2))
                 mask_status = (pi_o.status == 0) & (pi_o_prime.status == 0)
-
                 # reduce batch
                 o = o[mask_status]
                 a = a[mask_status]

@@ -174,13 +174,17 @@ def export_parametric_ocp(
     ocp.constraints.lbx = np.array([model_params["lower_bound_z"]])
     ocp.constraints.ubx = np.array([model_params["upper_bound_z"]])
 
-    ocp.constraints.idxbx_e = np.array([2])
-    ocp.constraints.lbx_e = np.array([model_params["lower_bound_z"]])
-    ocp.constraints.ubx_e = np.array([model_params["upper_bound_z"]])
+    ocp.constraints.idxbx_e = np.array([2,7,8,9])
+    ocp.constraints.lbx_e = np.array([model_params["lower_bound_z"],0.,0.,0.])
+    ocp.constraints.ubx_e = np.array([model_params["upper_bound_z"],0.,0.,0.])
 
     ocp.constraints.idxsbx = np.array([0])
     ocp.cost.zu = ocp.cost.zl = np.array([0])
     ocp.cost.Zu = ocp.cost.Zl = np.array([1e3])
+
+    ocp.constraints.idxsbx_e = np.array([0, 1, 2, 3])
+    ocp.cost.zu_e = ocp.cost.zl_e = np.array([0,0,0,0])
+    ocp.cost.Zu_e = ocp.cost.Zl_e = np.array([1e4,1e4,1e4,1e4])
 
     ######## Constraints ########
     ocp.constraints.x0 = np.array([0] * 13)
@@ -192,8 +196,8 @@ def export_parametric_ocp(
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.integrator_type = "DISCRETE"
     ocp.solver_options.nlp_solver_type = "SQP"
-    ocp.solver_options.nlp_solver_max_iter = 200
-    ocp.solver_options.num_threads_in_batch_solve = 32
+    ocp.solver_options.nlp_solver_max_iter = 100# dont set to 1!! does not update controls
+    ocp.solver_options.num_threads_in_batch_solve = 1
 
     ocp.solver_options.sim_method_num_stages = 2
     ocp.solver_options.sim_method_num_steps = 1

@@ -25,8 +25,8 @@ class QuadrotorStopTask(Task):
 
         nx, nu, Nhor = mpc.ocp.dims.nx, mpc.ocp.dims.nu, mpc.ocp.dims.N
         self.nx, self.nu, self.Nhor = nx, nu, Nhor
-        self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-2
-        self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+2
+        self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-3#-3
+        self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+3#+3
 
         super().__init__(mpc_layer)
 
@@ -52,7 +52,7 @@ class QuadrotorStopTask(Task):
         return MpcInput(x0=obs, parameters=mpc_param)
 
     def create_env(self, train: bool) -> gym.Env:
-         return QuadrotorStop(scale_disturbances=0.001)
+         return QuadrotorStop(scale_disturbances=0.000)
 
 #
 # @register_task("quadrotor_diag_costs")

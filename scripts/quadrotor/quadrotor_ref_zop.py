@@ -30,6 +30,7 @@ cfg.sac.lr_pi = 3e-4
 cfg.sac.lr_q = 3e-4
 cfg.sac.lr_alpha = 1e-3
 cfg.sac.init_alpha = 0.10
+cfg.sac.num_threads_mpc = 1
 
 
 output_path = Path(f"output/quadrotor_ref/zop_{args.seed}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
