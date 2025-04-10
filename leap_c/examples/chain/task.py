@@ -7,8 +7,8 @@ from gymnasium import spaces
 from leap_c.examples.chain.env import ChainEnv
 from leap_c.examples.chain.mpc import ChainMpc
 from leap_c.examples.chain.utils import Ellipsoid
-from leap_c.mpc import MpcInput, MpcParameter
-from leap_c.nn.modules import MpcSolutionModule
+from leap_c.acados.ocp_solver import AcadosOcpInput, AcadosOcpParameter
+from leap_c.acados.ocp_layer import AcadosOcpLayer
 from leap_c.registry import register_task
 from leap_c.task import Task
 
@@ -58,7 +58,7 @@ class ChainTask(Task):
             pos_last_mass_ref=pos_last_mass_ref,
             n_mass=n_mass,
         )
-        mpc_layer = MpcSolutionModule(mpc)
+        mpc_layer = AcadosOcpLayer(mpc)
 
         super().__init__(mpc_layer)
 
@@ -93,14 +93,14 @@ class ChainTask(Task):
             pos_last_ref=self.pos_last_mass_ref,
         )
 
-    def prepare_mpc_input(
+    def prepare_opt_layer_input(
         self,
         obs: Any,
         param_nn: Optional[torch.Tensor] = None,
-    ) -> MpcInput:
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
+    ) -> AcadosOcpInput:
+        mpc_param = AcadosOcpParameter(p_global=param_nn)  # type: ignore
 
-        return MpcInput(x0=obs, parameters=mpc_param)
+        return AcadosOcpInput(x0=obs, parameters=mpc_param)
 
 
 @register_task("chain_mass")
@@ -145,7 +145,7 @@ class ChainTaskLessParams(ChainTask):
             pos_last_mass_ref=pos_last_mass_ref,
             n_mass=n_mass,
         )
-        mpc_layer = MpcSolutionModule(mpc)
+        mpc_layer = AcadosOcpLayer(mpc)
 
         Task.__init__(self, mpc_layer)
 

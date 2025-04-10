@@ -9,7 +9,7 @@ from leap_c.examples.util import (
     find_param_in_p_or_p_global,
     translate_learnable_param_to_p_global,
 )
-from leap_c.mpc import Mpc
+from leap_c.acados.ocp_solver import AcadosOcpSolverManager
 
 # DO NOT TOUCH THE DEFAULT CONFIG!
 PARAMS = OrderedDict(
@@ -69,7 +69,7 @@ PARAMS = OrderedDict(
 )
 
 
-class PendulumOnCartMPC(Mpc):
+class PendulumOnCartMPC(AcadosOcpSolverManager):
     """
     Describes an inverted pendulum on a cart.
     The (possibly learnable) parameters of the system are given by

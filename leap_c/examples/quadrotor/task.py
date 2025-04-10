@@ -7,13 +7,11 @@ from gymnasium import spaces
 
 from leap_c.examples.quadrotor.env import QuadrotorStop
 from leap_c.examples.quadrotor.mpc import QuadrotorMpc
-from leap_c.nn.modules import MpcSolutionModule
+from leap_c.acados.ocp_layer import AcadosOcpLayer
 from leap_c.registry import register_task
 from leap_c.task import Task
-from .utils import read_from_yaml
-from functools import cached_property
 
-from ...mpc import MpcInput, MpcParameter
+from leap_c.acados.ocp_solver import AcadosOcpInput, AcadosOcpParameter
 
 
 @register_task("quadrotor_terminal")
@@ -21,7 +19,7 @@ class QuadrotorStopTask(Task):
 
     def __init__(self):
         mpc = QuadrotorMpc(N_horizon=4, params_learnable=["terminal_cost"])
-        mpc_layer = MpcSolutionModule(mpc)
+        mpc_layer = AcadosOcpLayer(mpc)
 
         self.param_low = mpc.ocp.p_global_values
         self.param_low[14:17] = -1
@@ -36,9 +34,9 @@ class QuadrotorStopTask(Task):
         high = self.param_high
         return spaces.Box(low=low, high=high, dtype=np.float32)
 
-    def prepare_mpc_input(self, obs: Any, param_nn: Optional[torch.Tensor] = None, ) -> MpcInput:
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
-        return MpcInput(x0=obs, parameters=mpc_param)
+    def prepare_opt_layer_input(self, obs: Any, param_nn: Optional[torch.Tensor] = None, ) -> AcadosOcpInput:
+        mpc_param = AcadosOcpParameter(p_global=param_nn)  # type: ignore
+        return AcadosOcpInput(x0=obs, parameters=mpc_param)
 
     def create_env(self, train: bool) -> gym.Env:
         return QuadrotorStop()
@@ -49,7 +47,7 @@ class QuadrotorStopTask(Task):
 
     def __init__(self):
         mpc = QuadrotorMpc(N_horizon=4, params_learnable=["m"])
-        mpc_layer = MpcSolutionModule(mpc)
+        mpc_layer = AcadosOcpLayer(mpc)
 
         self.param_low = 0.1 * mpc.ocp.p_global_values
         self.param_high = 10. * mpc.ocp.p_global_values
@@ -62,9 +60,9 @@ class QuadrotorStopTask(Task):
         high = self.param_high
         return spaces.Box(low=low, high=high, dtype=np.float32)
 
-    def prepare_mpc_input(self, obs: Any, param_nn: Optional[torch.Tensor] = None, ) -> MpcInput:
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
-        return MpcInput(x0=obs, parameters=mpc_param)
+    def prepare_opt_layer_input(self, obs: Any, param_nn: Optional[torch.Tensor] = None, ) -> AcadosOcpInput:
+        mpc_param = AcadosOcpParameter(p_global=param_nn)  # type: ignore
+        return AcadosOcpInput(x0=obs, parameters=mpc_param)
 
     def create_env(self, train: bool) -> gym.Env:
         return QuadrotorStop()

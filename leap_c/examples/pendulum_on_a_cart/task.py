@@ -9,11 +9,11 @@ from leap_c.examples.pendulum_on_a_cart.env import (
     PendulumOnCartSwingupEnv,
 )
 from leap_c.examples.pendulum_on_a_cart.mpc import PendulumOnCartMPC
-from leap_c.nn.modules import MpcSolutionModule
+from leap_c.acados.ocp_layer import AcadosOcpLayer
 from leap_c.registry import register_task
 from leap_c.task import Task
 
-from ...mpc import MpcInput, MpcParameter
+from leap_c.acados.ocp_solver import AcadosOcpInput, AcadosOcpParameter
 
 PARAMS_SWINGUP = OrderedDict(
     [
@@ -88,7 +88,7 @@ class PendulumOnCartSwingup(Task):
             learnable_params=learnable_params,
             params=params,  # type: ignore
         )
-        mpc_layer = MpcSolutionModule(mpc)
+        mpc_layer = AcadosOcpLayer(mpc)
         super().__init__(mpc_layer)
 
     def create_env(self, train: bool) -> gym.Env:
@@ -98,18 +98,18 @@ class PendulumOnCartSwingup(Task):
     def param_space(self) -> gym.spaces.Box | None:
         return gym.spaces.Box(low=-2.0 * torch.pi, high=2.0 * torch.pi, shape=(1,))
 
-    def prepare_mpc_input(
+    def prepare_opt_layer_input(
         self,
         obs: Any,
         param_nn: Optional[torch.Tensor] = None,
         action: Optional[torch.Tensor] = None,
-    ) -> MpcInput:
+    ) -> AcadosOcpInput:
         if param_nn is None:
             raise ValueError("Parameter tensor is required for MPC task.")
 
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
+        mpc_param = AcadosOcpParameter(p_global=param_nn)  # type: ignore
 
-        return MpcInput(x0=obs, parameters=mpc_param)
+        return AcadosOcpInput(x0=obs, parameters=mpc_param)
 
 
 @register_task("pendulum_balance")

@@ -1,4 +1,3 @@
-from copy import deepcopy
 from dataclasses import fields
 from pathlib import Path
 
@@ -19,10 +18,10 @@ from leap_c.examples.util import (
     find_param_in_p_or_p_global,
     translate_learnable_param_to_p_global,
 )
-from leap_c.mpc import Mpc, MpcBatchedState, MpcInput, MpcSingleState
+from leap_c.acados.ocp_solver import AcadosOcpSolverManager, AcadosOcpSolverState, AcadosOcpInput
 
 
-class ChainMpc(Mpc):
+class ChainMpc(AcadosOcpSolverManager):
     def __init__(
         self,
         params: dict[str, np.ndarray] | None = None,
@@ -100,11 +99,8 @@ class ChainMpc(Mpc):
 
         iterate = self.ocp_solver.store_iterate_to_flat_obj()
 
-        def init_state_fn(mpc_input: MpcInput) -> MpcSingleState | MpcBatchedState:
+        def init_state_fn(mpc_input: AcadosOcpInput) ->  AcadosOcpSolverState:
             # TODO (batch_rules): This should be updated if we switch to only batch solvers.
-
-            if not mpc_input.is_batched():
-                return deepcopy(iterate)
 
             batch_size = len(mpc_input.x0)
             kw = {}

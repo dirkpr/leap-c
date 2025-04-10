@@ -10,10 +10,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from leap_c.mpc import MpcBatchedState
+from leap_c.opt_layer import OptState, OptLayer
 from leap_c.nn.gaussian import SquashedGaussian
 from leap_c.nn.mlp import MLP, MlpConfig
-from leap_c.nn.modules import MpcSolutionModule
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
 from leap_c.rl.sac import SacCritic
@@ -30,7 +29,7 @@ class SacFopAlgorithmConfig:
         critic_mlp: The configuration for the critic networks.
         actor_mlp: The configuration for the policy network.
         batch_size: The batch size for training.
-        num_threads_mpc: The number of threads to use for the parallelization of the mpc.
+        num_threads_mpc: The number of threads to use for the parallelization of the acados.
         buffer_size: The size of the replay buffer.
         gamma: The discount factor.
         tau: The soft update factor.
@@ -88,7 +87,7 @@ class SacFopActorOutput(NamedTuple):
     stats: dict[str, float]
     action: torch.Tensor
     status: torch.Tensor
-    state_solution: MpcBatchedState
+    state_solution: OptState
 
     def select(self, mask: torch.Tensor) -> "SacFopActorOutput":
         return SacFopActorOutput(
@@ -101,14 +100,14 @@ class SacFopActorOutput(NamedTuple):
         )
 
 
-class MpcSacActor(nn.Module):
+class OptSacActor(nn.Module):
     def __init__(
         self,
         task: Task,
         env: gym.Env,
         mlp_cfg: MlpConfig,
-        prepare_mpc_state: (
-            Callable[[torch.Tensor, torch.Tensor, MpcBatchedState], MpcBatchedState]
+        prepare_opt_state: (
+            Callable[[torch.Tensor, torch.Tensor, OptState], OptState]
             | None
         ) = None,
     ):
@@ -123,15 +122,15 @@ class MpcSacActor(nn.Module):
             mlp_cfg=mlp_cfg,
         )
 
-        self.mpc: MpcSolutionModule = task.mpc  # type:ignore
-        self.prepare_mpc_input = task.prepare_mpc_input
-        self.prepare_mpc_state = prepare_mpc_state
-        self.actual_used_mpc_state = None
+        self.opt_layer: OptLayer = task.opt_layer  # type:ignore
+        self.prepare_opt_input = task.prepare_opt_layer_input
+        self.prepare_opt_state = prepare_opt_state
+        self.actual_used_opt_state = None
 
         self.squashed_gaussian = SquashedGaussian(param_space)  # type:ignore
 
     def forward(
-        self, obs, mpc_state: MpcBatchedState, deterministic=False
+        self, obs, opt_state: OptState, deterministic=False
     ) -> SacFopActorOutput:
         e = self.extractor(obs)
         mean, log_std = self.mlp(e)
@@ -140,21 +139,21 @@ class MpcSacActor(nn.Module):
             mean, log_std, deterministic=deterministic
         )
 
-        mpc_input = self.prepare_mpc_input(obs, param)
-        if self.prepare_mpc_state is not None:
-            mpc_state = self.prepare_mpc_state(obs, param, mpc_state)  # type:ignore
+        opt_input = self.prepare_opt_input(obs, param)
+        if self.prepare_opt_state is not None:
+            opt_state = self.prepare_opt_state(obs, param, opt_state)  # type:ignore
 
         # TODO: We have to catch and probably replace the state_solution somewhere,
         #       if its not a converged solution
-        mpc_output, state_solution, mpc_stats = self.mpc(mpc_input, mpc_state)
-        self.actual_used_mpc_state = mpc_state
+        opt_output, state_solution, mpc_stats = self.opt_layer(opt_input, opt_state)
+        self.actual_used_opt_state = opt_state
 
         return SacFopActorOutput(
             param,
             log_prob,
             {**gaussian_stats, **mpc_stats},
-            mpc_output.u0,
-            mpc_output.status,
+            opt_output.u0,
+            opt_output.status,
             state_solution,
         )
 
@@ -185,8 +184,8 @@ class SacFopTrainer(Trainer):
         self.q_target.load_state_dict(self.q.state_dict())
         self.q_optim = torch.optim.Adam(self.q.parameters(), lr=cfg.sac.lr_q)
 
-        self.pi = MpcSacActor(task, self.train_env, cfg.sac.actor_mlp)
-        self.pi.mpc.mpc.num_threads_batch_methods = (
+        self.pi = OptSacActor(task, self.train_env, cfg.sac.actor_mlp)
+        self.pi.opt_layer.mpc.num_threads_batch_methods = (
             cfg.sac.num_threads_mpc
         )
         self.pi_optim = torch.optim.Adam(self.pi.parameters(), lr=cfg.sac.lr_pi)

@@ -7,11 +7,11 @@ from acados_template.acados_ocp_iterate import (
 )
 
 # from leap_c.examples.linear_system import LinearSystemMPC
-from leap_c.mpc import Mpc, MpcInput, MpcOutput, MpcParameter
+from leap_c.acados.ocp_solver import AcadosOcpSolverManager, AcadosOcpInput, AcadosOcpOutput, AcadosOcpParameter
 from leap_c.utils import find_idx_for_labels
 
 
-def mpc_outputs_assert_allclose(mpc_output: MpcOutput, mpc_output2: MpcOutput, test_u_star: bool):
+def mpc_outputs_assert_allclose(mpc_output: AcadosOcpOutput, mpc_output2: AcadosOcpOutput, test_u_star: bool):
     allclose = True
     for fld in mpc_output._fields:
         val1 = getattr(mpc_output, fld)
@@ -47,13 +47,13 @@ def mpc_outputs_assert_allclose(mpc_output: MpcOutput, mpc_output2: MpcOutput, t
 
 
 def test_statelessness(
-    learnable_point_mass_mpc_different_params: Mpc,
+    learnable_point_mass_mpc_different_params: AcadosOcpSolverManager,
 ):
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
     u0 = np.array([0.5, 0.5])
     # Create MPC with some stateless and some global parameters
     lin_mpc = learnable_point_mass_mpc_different_params
-    mpc_input_standard = MpcInput(x0=x0, u0=u0)
+    mpc_input_standard = AcadosOcpInput(x0=x0, u0=u0)
     solution_standard = lin_mpc(mpc_input=mpc_input_standard, dudp=True, dvdp=True, dudx=True)
     p_global = lin_mpc.default_p_global
     assert p_global is not None
@@ -64,10 +64,10 @@ def test_statelessness(
     assert len(p_stagewise.shape) == 2, (
         f"I assumed this would be of shape ({lin_mpc.N + 1}, #p_stagewise) but shape is {p_stagewise.shape}"
     )
-    params = MpcParameter(p_global, p_stagewise)
+    params = AcadosOcpParameter(p_global, p_stagewise)
     x0_different = x0 - 0.01
     u0_different = u0 - 0.01
-    mpc_input_different = MpcInput(x0=x0_different, u0=u0_different, parameters=params)
+    mpc_input_different = AcadosOcpInput(x0=x0_different, u0=u0_different, parameters=params)
     solution_different = lin_mpc(mpc_input=mpc_input_different, dudp=True, dvdp=True, dudx=True)
     # Use this as proxy to verify the different solution is different enough
     assert not np.allclose(
@@ -79,7 +79,7 @@ def test_statelessness(
 
 
 def test_statelessness_batched(
-    learnable_point_mass_mpc_different_params: Mpc,
+    learnable_point_mass_mpc_different_params: AcadosOcpSolverManager,
 ):
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
     u0 = np.array([0.5, 0.5])
@@ -88,7 +88,7 @@ def test_statelessness_batched(
     n_batch = lin_mpc.n_batch
     x0 = np.tile(x0, (lin_mpc.n_batch, 1))
     u0 = np.tile(u0, (lin_mpc.n_batch, 1))
-    mpc_input_standard = MpcInput(x0=x0, u0=u0)
+    mpc_input_standard = AcadosOcpInput(x0=x0, u0=u0)
     solution_standard = lin_mpc(mpc_input=mpc_input_standard, dudp=True, dvdp=True, dudx=True)
     p_global = lin_mpc.default_p_global
     assert p_global is not None
@@ -101,10 +101,10 @@ def test_statelessness_batched(
         f"I assumed this would be of shape ({lin_mpc.N + 1}, #p_stagewise) but shape is {p_stagewise.shape}"
     )
     p_stagewise = np.tile(p_stagewise, (n_batch, 1, 1))
-    params = MpcParameter(p_global, p_stagewise)
+    params = AcadosOcpParameter(p_global, p_stagewise)
     x0_different = x0 - 0.01
     u0_different = u0 - 0.01
-    mpc_input_different = MpcInput(x0=x0_different, u0=u0_different, parameters=params)
+    mpc_input_different = AcadosOcpInput(x0=x0_different, u0=u0_different, parameters=params)
     solution_different = lin_mpc(mpc_input=mpc_input_different, dudp=True, dvdp=True, dudx=True)
     # Use this as proxy to verify the different solution is different enough
     assert not np.allclose(
@@ -115,10 +115,10 @@ def test_statelessness_batched(
     mpc_outputs_assert_allclose(solution_standard, solution_supposedly_standard, test_u_star=True)
 
 
-def test_statelessness_pendulum_on_cart(learnable_pendulum_on_cart_mpc: Mpc):
+def test_statelessness_pendulum_on_cart(learnable_pendulum_on_cart_mpc: AcadosOcpSolverManager):
     # Create MPC with some stateless and some global parameters
     x0 = np.array([0, -np.pi, 0, 0])
-    mpc_input_standard = MpcInput(x0=x0)
+    mpc_input_standard = AcadosOcpInput(x0=x0)
     solution_standard = learnable_pendulum_on_cart_mpc(mpc_input=mpc_input_standard, dudp=True, dvdp=True, dudx=True)
 
 
@@ -128,8 +128,8 @@ def test_statelessness_pendulum_on_cart(learnable_pendulum_on_cart_mpc: Mpc):
     idx = find_idx_for_labels(learnable_pendulum_on_cart_mpc.ocp_solver.acados_ocp.model.p_global, "xref1")
     p_global_def[idx] = 1  # Set reference position to 1
 
-    params = MpcParameter(p_global=p_global_def)
-    mpc_input_different = MpcInput(x0=x0, parameters=params)
+    params = AcadosOcpParameter(p_global=p_global_def)
+    mpc_input_different = AcadosOcpInput(x0=x0, parameters=params)
     solution_different = learnable_pendulum_on_cart_mpc(mpc_input=mpc_input_different, dudp=True, dvdp=True, dudx=True)
     # Use this as proxy to verify the different solution is different enough
     assert not np.allclose(
@@ -142,11 +142,11 @@ def test_statelessness_pendulum_on_cart(learnable_pendulum_on_cart_mpc: Mpc):
     mpc_outputs_assert_allclose(solution_standard, solution_supposedly_standard, test_u_star=True)
 
 
-def test_statelessness_batched_pendulum_on_cart(n_batch: int, learnable_pendulum_on_cart_mpc: Mpc):
+def test_statelessness_batched_pendulum_on_cart(n_batch: int, learnable_pendulum_on_cart_mpc: AcadosOcpSolverManager):
     # Create MPC with some stateless and some global parameters
     x0 = np.array([0, -np.pi, 0, 0])
     x0 = np.tile(x0, (n_batch, 1))
-    mpc_input_standard = MpcInput(x0=x0)
+    mpc_input_standard = AcadosOcpInput(x0=x0)
     solution_standard = learnable_pendulum_on_cart_mpc(mpc_input=mpc_input_standard, dudp=True, dvdp=True, dudx=True)
 
     assert learnable_pendulum_on_cart_mpc.default_p_global is not None
@@ -156,8 +156,8 @@ def test_statelessness_batched_pendulum_on_cart(n_batch: int, learnable_pendulum
     idx = find_idx_for_labels(learnable_pendulum_on_cart_mpc.ocp_solver.acados_ocp.model.p_global, "xref1")
 
     p_global_def[:, idx] = 1  # Set reference position to 1
-    params = MpcParameter(p_global=p_global_def)
-    mpc_input_different = MpcInput(x0=x0, parameters=params)
+    params = AcadosOcpParameter(p_global=p_global_def)
+    mpc_input_different = AcadosOcpInput(x0=x0, parameters=params)
     solution_different = learnable_pendulum_on_cart_mpc(mpc_input=mpc_input_different, dudp=True, dvdp=True, dudx=True)
     # Use this as proxy to verify the different solution is different enough
     assert not np.allclose(
@@ -171,12 +171,12 @@ def test_statelessness_batched_pendulum_on_cart(n_batch: int, learnable_pendulum
 
 
 def test_using_mpc_state(
-    learnable_point_mass_mpc_different_params: Mpc,
+    learnable_point_mass_mpc_different_params: AcadosOcpSolverManager,
 ):
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
     u0 = np.array([0.5, 0.5])
     linear_mpc = learnable_point_mass_mpc_different_params
-    inp = MpcInput(x0=x0, u0=u0)
+    inp = AcadosOcpInput(x0=x0, u0=u0)
     sol = linear_mpc(inp)
     state = linear_mpc.last_call_state
     first_iters = linear_mpc.ocp_solver.get_stats("qp_iter").sum()  # type:ignore
@@ -188,7 +188,7 @@ def test_using_mpc_state(
 
 
 def test_using_mpc_state_batched(
-    learnable_point_mass_mpc_different_params: Mpc,
+    learnable_point_mass_mpc_different_params: AcadosOcpSolverManager,
     n_batch: int,
 ):
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
@@ -196,7 +196,7 @@ def test_using_mpc_state_batched(
     learnable_linear_mpc = learnable_point_mass_mpc_different_params
     x0 = np.tile(x0, (n_batch, 1))
     u0 = np.tile(u0, (n_batch, 1))
-    inp = MpcInput(x0=x0, u0=u0)
+    inp = AcadosOcpInput(x0=x0, u0=u0)
     sol = learnable_linear_mpc(inp)
     state = learnable_linear_mpc.last_call_state
     for solver in learnable_linear_mpc.ocp_batch_solver.ocp_solvers:
@@ -210,12 +210,12 @@ def test_using_mpc_state_batched(
 
 
 def test_backup_fn(
-    learnable_point_mass_mpc_different_params: Mpc,
+    learnable_point_mass_mpc_different_params: AcadosOcpSolverManager,
 ):
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
     u0 = np.array([0.5, 0.5])
     learnable_linear_mpc = learnable_point_mass_mpc_different_params
-    inp = MpcInput(x0=x0, u0=u0)
+    inp = AcadosOcpInput(x0=x0, u0=u0)
     default_init = learnable_linear_mpc.init_state_fn  # For restoring fixture
     learnable_linear_mpc.init_state_fn = None  # Make sure 0 initialization for backup is being used
     sol = learnable_linear_mpc(inp)
@@ -236,7 +236,7 @@ def test_backup_fn(
     no_sol = learnable_linear_mpc(inp, mpc_state=ridiculous_state)
     assert no_sol.status != 0
 
-    def backup_fn_single(input: MpcInput):
+    def backup_fn_single(input: AcadosOcpInput):
         return template_state
 
     learnable_linear_mpc.init_state_fn = backup_fn_single
@@ -245,7 +245,7 @@ def test_backup_fn(
     mpc_outputs_assert_allclose(sol, sol_again, test_u_star=True)
 
 
-def test_backup_fn_batched(learnable_point_mass_mpc_different_params: Mpc, n_batch: int):
+def test_backup_fn_batched(learnable_point_mass_mpc_different_params: AcadosOcpSolverManager, n_batch: int):
     learnable_linear_mpc = learnable_point_mass_mpc_different_params
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
     u0 = np.array([0.5, 0.5])
@@ -255,7 +255,7 @@ def test_backup_fn_batched(learnable_point_mass_mpc_different_params: Mpc, n_bat
     # The exact increment is not important, just that it is different for each sample
     for i in range(n_batch):
         x0[i] = x0[i] + i * increment
-    inp = MpcInput(x0=x0, u0=u0)
+    inp = AcadosOcpInput(x0=x0, u0=u0)
     default_init = learnable_linear_mpc.init_state_fn  # For restoring fixture
     learnable_linear_mpc.init_state_fn = None  # Make sure 0 initialization for backup is being used
     sol = learnable_linear_mpc(inp)
@@ -277,7 +277,7 @@ def test_backup_fn_batched(learnable_point_mass_mpc_different_params: Mpc, n_bat
     no_sol = learnable_linear_mpc(inp, mpc_state=ridiculous_state)
     assert np.all(no_sol.status != 0)
 
-    def backup_fn_batched(input: MpcInput):
+    def backup_fn_batched(input: AcadosOcpInput):
         vals = [getattr(template_state, field.name)[i] for field in fields(template_state) if field.type is not int]
         return AcadosOcpFlattenedIterate(*vals)
 
@@ -290,19 +290,19 @@ def test_backup_fn_batched(learnable_point_mass_mpc_different_params: Mpc, n_bat
     mpc_outputs_assert_allclose(sol, sol_again, test_u_star=True)
 
 
-def test_fail_consistency_batched_non_batched(learnable_pendulum_on_cart_mpc: Mpc, n_batch: int):
+def test_fail_consistency_batched_non_batched(learnable_pendulum_on_cart_mpc: AcadosOcpSolverManager, n_batch: int):
     x0 = np.tile(np.array([0, -np.pi, 0, 0]), (n_batch, 1))
     p_glob = learnable_pendulum_on_cart_mpc.default_p_global.copy()  # type:ignore
     p_glob[0] = 0  # Set Mass of cart to 0 # type:ignore
     p_glob = np.tile(p_glob, (n_batch, 1))  # type:ignore
-    sol = learnable_pendulum_on_cart_mpc(MpcInput(x0=x0, parameters=MpcParameter(p_global=p_glob)))
-    single_sol = learnable_pendulum_on_cart_mpc(MpcInput(x0=x0[0], parameters=MpcParameter(p_global=p_glob[0])))
+    sol = learnable_pendulum_on_cart_mpc(AcadosOcpInput(x0=x0, parameters=AcadosOcpParameter(p_global=p_glob)))
+    single_sol = learnable_pendulum_on_cart_mpc(AcadosOcpInput(x0=x0[0], parameters=AcadosOcpParameter(p_global=p_glob[0])))
     assert single_sol.status != 0
     assert np.all(sol.status != 0)
 
 
 def test_closed_loop(
-    learnable_point_mass_mpc_different_params: Mpc,
+    learnable_point_mass_mpc_different_params: AcadosOcpSolverManager,
 ):
     x0 = np.array([0.5, 0.5, 0.5, 0.5])
     learnable_linear_mpc = learnable_point_mass_mpc_different_params

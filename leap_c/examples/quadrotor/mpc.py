@@ -7,8 +7,7 @@ import scipy
 from acados_template import AcadosOcp
 from leap_c.examples.quadrotor.casadi_models import get_rhs_quadrotor
 from leap_c.examples.quadrotor.utils import read_from_yaml
-from leap_c.mpc import Mpc
-from leap_c.utils import set_standard_sensitivity_options
+from leap_c.acados.ocp_solver import AcadosOcpSolverManager, set_standard_sensitivity_options
 
 PARAMS = OrderedDict(
     [
@@ -18,7 +17,7 @@ PARAMS = OrderedDict(
 )
 
 
-class QuadrotorMpc(Mpc):
+class QuadrotorMpc(AcadosOcpSolverManager):
     def __init__(
         self,
         params: dict[str, np.ndarray] | None = None,

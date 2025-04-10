@@ -487,7 +487,7 @@ def _define_nlp_solver(n_mass: int, f_expl: Callable) -> Callable:
 
     nlp = {"x": w, "f": 0, "g": g, "p": p.cat}
 
-    return ca.nlpsol("solver", "ipopt", nlp), x(0), p(0)
+    return ca.nlpsol("acados", "ipopt", nlp), x(0), p(0)
 
 
 class RestingChainSolver:

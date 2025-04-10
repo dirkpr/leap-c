@@ -28,7 +28,7 @@ if __name__ == "__main__":
         solver.set(0, "lbx", obs)
         solver.set(0, "ubx", obs)
         status = solver.solve()
-        #print(f"SQP Iterations: {solver.get_stats('sqp_iter')}")
+        #print(f"SQP Iterations: {acados.get_stats('sqp_iter')}")
         if env.t > 0.8 and record_iterate:
             solver.store_iterate("./examples/quadrotor/init_iterate.json")
             break

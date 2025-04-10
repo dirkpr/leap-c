@@ -16,8 +16,8 @@ from leap_c.examples.pointmass.env import (
     WindField,
 )
 from leap_c.examples.pointmass.mpc import PointMassMPC
-from leap_c.mpc import MpcInput, MpcParameter
-from leap_c.nn.modules import MpcSolutionModule
+from leap_c.acados.ocp_solver import AcadosOcpInput, AcadosOcpParameter
+from leap_c.acados.ocp_layer import AcadosOcpLayer
 from leap_c.registry import register_task
 from leap_c.task import Task
 
@@ -39,7 +39,7 @@ class PointMassTask(Task):
                 # "u_wind",
             ]
         )
-        mpc_layer = MpcSolutionModule(mpc)
+        mpc_layer = AcadosOcpLayer(mpc)
 
         super().__init__(mpc_layer)
 
@@ -74,14 +74,14 @@ class PointMassTask(Task):
 
         return PointMassEnv(max_time=10.0, init_state_dist=init_state_dist)
 
-    def prepare_mpc_input(
+    def prepare_opt_layer_input(
         self,
         obs: Any,
         param_nn: Optional[torch.Tensor] = None,
-    ) -> MpcInput:
-        mpc_param = MpcParameter(p_global=param_nn)  # type: ignore
+    ) -> AcadosOcpInput:
+        mpc_param = AcadosOcpParameter(p_global=param_nn)  # type: ignore
 
-        return MpcInput(x0=obs, parameters=mpc_param)
+        return AcadosOcpInput(x0=obs, parameters=mpc_param)
 
 
 @register_task("point_mass_homo_center")

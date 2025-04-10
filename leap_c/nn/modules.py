@@ -6,9 +6,7 @@ import torch
 import torch.nn as nn
 from acados_template import AcadosSimSolver
 
-from leap_c.mpc import Mpc, MpcBatchedState, MpcInput, MpcOutput, MpcSingleState
-
-from .autograd import AutogradCasadiFunction, DynamicsSimFunction, MPCSolutionFunction
+from .autograd import AutogradCasadiFunction, DynamicsSimFunction
 
 
 class CasadiExprModule(nn.Module):
@@ -40,75 +38,6 @@ class AcadosSimModule(nn.Module):
         self, x: torch.Tensor, u: torch.Tensor, p: torch.Tensor | None = None
     ) -> torch.Tensor:
         return DynamicsSimFunction.apply(self.sim, x, u, p)
-
-
-class MpcSolutionModule(nn.Module):
-    """A PyTorch module to allow differentiating the solution given by an MPC planner,
-    with respect to some inputs.
-
-    Backpropagation works by using the sensitivities
-    given by the MPC. If differentiation with respect to parameters is desired, they must
-    be declared as global over the horizon (contrary to stagewise parameters).
-
-    NOTE: Make sure that you follow the documentation of AcadosOcpSolver.eval_solution_sensitivity
-        and AcadosOcpSolver.eval_and_get_optimal_value_gradient
-        or else the gradients used in the backpropagation might be erroneous!
-
-    NOTE: The status output can be used to rid yourself from non-converged solutions, e.g., by using the
-        CleanseAndReducePerSampleLoss module.
-
-    Attributes:
-        mpc: The MPC object to use.
-    """
-
-    def __init__(self, mpc: Mpc):
-        super().__init__()
-        self.mpc = mpc
-
-    def forward(
-        self,
-        mpc_input: MpcInput,
-        mpc_state: MpcBatchedState | None = None,
-    ) -> tuple[MpcOutput, MpcSingleState | MpcBatchedState, dict[str, Any]]:
-        """Differentiation is only allowed with respect to x0, u0 and p_global.
-
-        Args:
-            mpc_input: The MPCInput object containing the input that should be set.
-                NOTE x0, u0 and p_global must be tensors, if not None.
-            mpc_state: The MPCBatchedState object containing the initializations for the solver.
-
-        Returns:
-            mpc_output: An MPCOutput object containing tensors of u0, value (or Q, if u0 was given) and status of the solution.
-            stats: A dictionary containing statistics from the MPC evaluation.
-        """
-        if mpc_input.parameters is None:
-            p_glob = None
-            p_rest = None
-        else:
-            p_glob = mpc_input.parameters.p_global
-            p_rest = mpc_input.parameters._replace(p_global=None)
-
-        u0, value, status = MPCSolutionFunction.apply(  # type:ignore
-            self.mpc,
-            mpc_input.x0,
-            mpc_input.u0,
-            p_glob,
-            p_rest,
-            mpc_state,
-        )
-
-        if mpc_input.u0 is None:
-            V = value
-            Q = None
-        else:
-            Q = value
-            V = None
-
-        return (
-            MpcOutput(u0=u0, Q=Q, V=V, status=status),
-            self.mpc.last_call_state,
-            self.mpc.last_call_stats,
-        )
 
 
 class CleanseAndReducePerSampleLoss(nn.Module):

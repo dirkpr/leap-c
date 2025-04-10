@@ -6,12 +6,10 @@ from gymnasium.wrappers import OrderEnforcing, RecordEpisodeStatistics
 import torch
 from torch.utils.data._utils.collate import collate
 
-from leap_c.collate import create_collate_fn_map, pytree_tensor_to
-from leap_c.mpc import MpcInput
+from leap_c.acados.collate import create_collate_fn_map, pytree_tensor_to
+from leap_c.acados.ocp_solver import AcadosOcpInput
 from leap_c.nn.extractor import Extractor, IdentityExtractor
-from leap_c.nn.modules import MpcSolutionModule
-
-EnvFactory = Callable[[], gym.Env]
+from leap_c.opt_layer import OptLayer
 
 
 class Task(ABC):
@@ -23,7 +21,7 @@ class Task(ABC):
     extractors and MPC inputs based on environment observations and states.
 
     Attributes:
-        mpc (MPC): The Model Predictive Control planner to be used for this task.
+        opt_layer (MPC): The Model Predictive Control planner to be used for this task.
         collate_fn_map (dict[type, Callable]): A dictionary mapping types to collate
             functions. This is used to collate data into a tensor. If None, the default
             collate function map is used, which is sufficient for most tasks and contains
@@ -33,20 +31,19 @@ class Task(ABC):
 
     def __init__(
         self,
-        mpc: MpcSolutionModule | None,
+        opt_layer: OptLayer | None,
         collate_fn_map: dict[type, Callable] | None = None,
     ):
         """Initializes the Task with an MPC planner and a gymnasium environment.
 
         Args:
-            mpc (MPCSolutionModule): The Model Predictive Control planner to be used
-                for this task.
+            opt_layer: The optimization layer to be used for this task.
             collate_fn_map (dict[type, Callable]): A dictionary mapping types to collate
                 functions. If None, the default collate function map is used, which is
                 sufficient for most tasks.
         """
         super().__init__()
-        self.mpc = mpc
+        self.opt_layer = opt_layer
         self.collate_fn_map = (
             create_collate_fn_map() if collate_fn_map is None else collate_fn_map
         )
@@ -64,13 +61,13 @@ class Task(ABC):
         ...
 
     @abstractmethod
-    def prepare_mpc_input(
+    def prepare_opt_layer_input(
         self,
         obs: Any,
         param_nn: Optional[torch.Tensor] = None,
         action: Optional[torch.Tensor] = None,
-    ) -> MpcInput:
-        """Prepares the MPC input from the state and observation for the MPC class.
+    ) -> AcadosOcpInput:
+        """Prepares the optimization layer input from the state and observation`.
 
         Args:
             obs (Any): The observation from the environment.

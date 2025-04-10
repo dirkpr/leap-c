@@ -10,10 +10,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from leap_c.mpc import MpcBatchedState
+from leap_c.acados.ocp_solver import AcadosOcpSolverState
 from leap_c.nn.gaussian import SquashedGaussian
 from leap_c.nn.mlp import MLP, MlpConfig
-from leap_c.nn.modules import MpcSolutionModule
+from leap_c.acados.ocp_layer import AcadosOcpLayer
+from leap_c.opt_layer import OptLayer
 from leap_c.nn.utils import min_max_scaling
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
@@ -118,10 +119,10 @@ class SacZopActorOutput(NamedTuple):
     stats: dict[str, float]
     action: torch.Tensor | None = None
     status: torch.Tensor | None = None
-    state_solution: MpcBatchedState | None = None
+    state_solution: AcadosOcpSolverState | None = None
 
 
-class MpcSacActor(nn.Module):
+class OptSacActor(nn.Module):
     def __init__(
         self,
         task: Task,
@@ -139,15 +140,15 @@ class MpcSacActor(nn.Module):
             mlp_cfg=mlp_cfg,
         )
 
-        self.mpc: MpcSolutionModule = task.mpc  # type:ignore
-        self.prepare_mpc_input = task.prepare_mpc_input
+        self.opt: AcadosOcpLayer = task.opt_layer  # type:ignore
+        self.prepare_mpc_input = task.prepare_opt_layer_input
 
         self.squashed_gaussian = SquashedGaussian(param_space)  # type:ignore
 
     def forward(
         self,
         obs,
-        mpc_state: None | MpcBatchedState,
+        mpc_state: None | AcadosOcpSolverState,
         deterministic: bool = False,
         only_param: bool = False,
     ) -> SacZopActorOutput:
@@ -166,7 +167,7 @@ class MpcSacActor(nn.Module):
         # TODO: We have to catch and probably replace the state_solution somewhere,
         #       if its not a converged solution
         with torch.no_grad():
-            mpc_output, state_solution, mpc_stats = self.mpc(mpc_input, mpc_state)
+            mpc_output, state_solution, mpc_stats = self.opt(mpc_input, mpc_state)
 
         return SacZopActorOutput(
             param,
@@ -204,7 +205,7 @@ class SacZopTrainer(Trainer):
         self.q_target.load_state_dict(self.q.state_dict())
         self.q_optim = torch.optim.Adam(self.q.parameters(), lr=cfg.sac.lr_q)
 
-        self.pi = MpcSacActor(task, self.train_env, cfg.sac.actor_mlp)
+        self.pi = OptSacActor(task, self.train_env, cfg.sac.actor_mlp)
         self.pi_optim = torch.optim.Adam(self.pi.parameters(), lr=cfg.sac.lr_pi)
 
         self.log_alpha = nn.Parameter(torch.tensor(cfg.sac.init_alpha).log())  # type: ignore

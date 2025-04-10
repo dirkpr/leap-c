@@ -10,7 +10,7 @@ from acados_template.acados_ocp_iterate import (
 from torch.utils._pytree import tree_map_only
 from torch.utils.data._utils.collate import default_collate_fn_map
 
-from leap_c.mpc import MpcParameter
+from leap_c.acados.ocp_solver import AcadosOcpParameter
 
 
 def safe_collate_possible_nones(
@@ -40,7 +40,7 @@ def _collate_mpc_param_fn(batch, *, collate_fn_map=None):
     stag_data = [x.p_stagewise for x in batch]
     idx_data = [x.p_stagewise_sparse_idx for x in batch]
 
-    return MpcParameter(
+    return AcadosOcpParameter(
         p_global=safe_collate_possible_nones(glob_data),
         p_stagewise=safe_collate_possible_nones(stag_data),
         p_stagewise_sparse_idx=safe_collate_possible_nones(idx_data),
@@ -61,7 +61,7 @@ def _collate_acados_flattened_iterate_fn(batch, *, collate_fn_map=None):
 
 def _collate_acados_iterate_fn(batch, *, collate_fn_map=None):
 
-    # NOTE: Could also be a FlattenedBatchIterate (which has a parallelized set in the batch solver),
+    # NOTE: Could also be a FlattenedBatchIterate (which has a parallelized set in the batch acados),
     # but this seems more intuitive. If the user wants to have a flattened batch iterate, he can
     # just put in AcadosOcpIterate.flatten into the buffer.
     return list(batch)
@@ -84,7 +84,7 @@ def create_collate_fn_map():
 
     # Keeps MPCParameter as np.ndarray
 
-    custom_collate_map[MpcParameter] = _collate_mpc_param_fn
+    custom_collate_map[AcadosOcpParameter] = _collate_mpc_param_fn
     custom_collate_map[AcadosOcpFlattenedIterate] = _collate_acados_flattened_iterate_fn
     custom_collate_map[AcadosOcpIterate] = _collate_acados_iterate_fn
 

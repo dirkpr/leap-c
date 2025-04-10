@@ -12,12 +12,12 @@ from acados_template import (
     AcadosSimSolver,
 )
 
-from leap_c.mpc import Mpc, MpcParameter
-from leap_c.utils import AcadosFileManager
+from leap_c.acados.ocp_solver import AcadosOcpSolverManager, AcadosOcpParameter
+from leap_c.acados.utils import AcadosFileManager
 
 
 def create_dynamics_from_mpc(
-    mpc: Mpc, export_dir: None | Path = None, sens_forw=False, dt=None
+    mpc: AcadosOcpSolverManager, export_dir: None | Path = None, sens_forw=False, dt=None
 ) -> "Dynamics":
     """Create a dynamics object from an MPC object."""
     ocp: AcadosOcp = mpc.ocp
@@ -127,7 +127,7 @@ class SimDynamics(Dynamics):
 
 
 class CasadiDynamics(Dynamics):
-    def __init__(self, mpc: Mpc):
+    def __init__(self, mpc: AcadosOcpSolverManager):
         self.mpc = mpc
 
         ocp = mpc.ocp
@@ -156,7 +156,7 @@ class CasadiDynamics(Dynamics):
         self,
         x: np.ndarray,
         u: np.ndarray,
-        p: MpcParameter | None = None,
+        p: AcadosOcpParameter | None = None,
         with_sens: bool = False,
     ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Step the dynamics.
