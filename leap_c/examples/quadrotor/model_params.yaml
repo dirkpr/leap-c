@@ -1,4 +1,4 @@
-lower_bound_z: 0.0
+lower_bound_z: -10.0
 upper_bound_z: 10.0
 safety_dist: 0.01
 cx1_fres: -0.15019502977978097

@@ -9,7 +9,7 @@ from leap_c.rl.sac import SacBaseConfig
 
 parser = ArgumentParser()
 parser.add_argument("--output_path", type=Path, default=None)
-parser.add_argument("--device", type=str, default="cpu")
+parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--seed", type=int, default=1)
 args = parser.parse_args()
 
@@ -30,6 +30,7 @@ cfg.sac.lr_pi = 3e-4
 cfg.sac.lr_q = 3e-4
 cfg.sac.lr_alpha = 1e-3
 cfg.sac.init_alpha = 0.10
+cfg.sac.num_threads_mpc = 10
 
 
 output_path = Path(f"output/quadrotor_ref/fop_{args.seed}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")

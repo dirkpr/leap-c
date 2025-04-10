@@ -51,7 +51,6 @@ class QuadrotorMpc(Mpc):
                     raise ValueError(f"{param} cannot be learnable in this example.")
 
         params = OrderedDict([
-            ("r_diag", np.array([0.06, 0.06, 0.06, 0.06])),
             ("xref1", np.array([0.])),#x
             ("xref2", np.array([0.])),#y
             ("xref3", np.array([0.])),#z
@@ -66,23 +65,23 @@ class QuadrotorMpc(Mpc):
             ("xref12", np.array([0.])),
             ("xref13", np.array([0.])),
             ("uref", np.array([970.437] * 4)),
-            ("L11", np.array([np.sqrt(20e4)])),#x
-            ("L22", np.array([np.sqrt(20e4)])),#y
-            ("L33", np.array([np.sqrt(20e4)])),#z
-            ("L44", np.array([np.sqrt(20e0)])),#qw
-            ("L55", np.array([np.sqrt(20e4)])),#qx
-            ("L66", np.array([np.sqrt(20e4)])),#qy
-            ("L77", np.array([np.sqrt(20e0)])),#qz
-            ("L88", np.array([np.sqrt(20e2)])),#vx
-            ("L99", np.array([np.sqrt(20e2)])),#vy
-            ("L1010", np.array([np.sqrt(20e2)])),#vz
-            ("L1111", np.array([np.sqrt(20e1)])),#domega1
-            ("L1212", np.array([np.sqrt(20e1)])),#domega2
-            ("L1313", np.array([np.sqrt(20e1)])),#domega3
-            ("L1414", np.array([np.sqrt(6e-2)])),#r1
-            ("L1515", np.array([np.sqrt(6e-2)])),#r2
-            ("L1616", np.array([np.sqrt(6e-2)])),#r3
-            ("L1717", np.array([np.sqrt(6e-2)])),#r4
+            ("L11", np.array([np.sqrt(1.0)])),
+            ("L22", np.array([np.sqrt(1.0)])),
+            ("L33", np.array([np.sqrt(1.0)])),
+            ("L44", np.array([np.sqrt(0.0001)])),
+            ("L55", np.array([np.sqrt(1.0)])),
+            ("L66", np.array([np.sqrt(1.0)])),
+            ("L77", np.array([np.sqrt(0.0001)])),
+            ("L88", np.array([np.sqrt(0.01)])),
+            ("L99", np.array([np.sqrt(0.01)])),
+            ("L1010", np.array([np.sqrt(0.01)])),
+            ("L1111", np.array([np.sqrt(0.001)])),
+            ("L1212", np.array([np.sqrt(0.001)])),
+            ("L1313", np.array([np.sqrt(0.001)])),
+            ("L1414", np.array([np.sqrt(3e-7)])),
+            ("L1515", np.array([np.sqrt(3e-7)])),
+            ("L1616", np.array([np.sqrt(3e-7)])),
+            ("L1717", np.array([np.sqrt(3e-7)])),
             ("Lloweroffdiag", np.array([0.0] * (16 + 15 + 14 + 13 + 12 + 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2 + 1))),
         ]) if params is None else params
 
@@ -181,7 +180,7 @@ def export_parametric_ocp(
 
     ocp.constraints.idxsbx = np.array([0])
     ocp.cost.zu = ocp.cost.zl = np.array([0])
-    ocp.cost.Zu = ocp.cost.Zl = np.array([1e7])
+    ocp.cost.Zu = ocp.cost.Zl = np.array([1e3])
 
     ######## Constraints ########
     ocp.constraints.x0 = np.array([0] * 13)
