@@ -2,6 +2,7 @@ import gymnasium as gym
 import numpy as np
 import matplotlib.pyplot as plt
 from gymnasium import spaces
+from tensorflow.python.ops.gen_image_ops import scale_and_translate
 
 from leap_c.examples.quadrotor.casadi_models import get_rhs_quadrotor, integrate_one_step
 from leap_c.examples.quadrotor.utils import read_from_yaml
@@ -18,12 +19,21 @@ class QuadrotorStop(gym.Env):
             self,
             render_mode: str | None = None,
             verbose: bool = False,
-            scale_disturbances: float = 0.0,
+            difficulty: str = "easy",
     ):
-        self.weight_position = 1
-        self.weight_constraint = 10
         self.fig, self.axes = None, None
         self.verbose = verbose
+        self.last_dist = None
+        self.last_action = None
+        self.uref = np.array([970.437] * 4)
+        if difficulty == "easy":
+            scale_disturbances = 0.0
+        elif difficulty == "medium":
+            scale_disturbances = 0.0004
+        elif difficulty == "hard":
+            scale_disturbances = 0.001
+        else:
+            raise ValueError("Difficulty must be one of easy, medium, or hard.")
 
         self.model_params = read_from_yaml(dirname(abspath(__file__)) + "/model_params.yaml")
 
@@ -101,15 +111,27 @@ class QuadrotorStop(gym.Env):
             trunc = True
             term = True
 
-        #r = dt * (self.weight_position * (2 - np.linalg.norm(self.x[:3])))
-        violates_contraint =  min(np.sign(-self.x[2]+self.model_params["safety_dist"]),0)
-        #r = dt * self.weight_position * 2 / (10 * np.linalg.norm(self.x[:3])** 2 + 1) + \
-        #    dt * violates_contraint * self.weight_constraint
-        r = dt * self.weight_position * (2-np.linalg.norm(self.x[:3]))+\
-            dt * violates_contraint * self.weight_constraint
-        if self.t >= self.sim_params["t_sim"]:
-            term = True
+        # rewards similar to
+        # https://gymnasium.farama.org/environments/mujoco/ant/
+        r_progress = 0
+        if self.last_dist is not None:
+            r_progress = dt * 10 * (self.last_dist - np.linalg.norm(self.x[:3]))
+        self.last_dist = np.linalg.norm(self.x[:3])
+
+        r_close = dt * 4 * 1 / (np.linalg.norm(self.x[:3]) + 1)
+
+        violates_contraint = min(np.sign(-self.x[2] + self.model_params["safety_dist"]), 0)
+        r_constraint = 5 * violates_contraint
         if violates_contraint:
+            term = True
+
+        r_control = -0.2 * dt * np.sum((action - self.uref) / 1e3 ** 2)
+        r_alive = 1 * dt
+
+        # todo: add cost for control, action, dcontrol, and daction
+        r = r_progress + r_constraint + r_alive + r_control + r_close
+
+        if self.t >= self.sim_params["t_sim"]:
             term = True
 
         self.reset_needed = trunc or term
@@ -127,6 +149,7 @@ class QuadrotorStop(gym.Env):
         if self._np_random is None:
             raise RuntimeError("The first reset needs to be called with a seed.")
         self.t = 0
+        self.last_dist = None
 
         Rxy = 2  # Radius of the sphere
         Rz = 4

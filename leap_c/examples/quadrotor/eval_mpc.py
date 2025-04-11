@@ -7,12 +7,12 @@ from leap_c.examples.quadrotor.mpc import QuadrotorMpc
 
 if __name__ == "__main__":
 
-    env = QuadrotorStop(render_mode="rgb_array", scale_disturbances=0.0000)#0.001)
+    env = QuadrotorStop(render_mode="rgb_array", difficulty="easy")
     mpc = QuadrotorMpc(N_horizon=9)
     solver = mpc.ocp_solver
     render_movie = True
     record_iterate = False
-    Niter = 10
+    Niter = 1
     if Niter>5:
         render_movie=False
     for i in range(Niter):
@@ -42,7 +42,7 @@ if __name__ == "__main__":
             action = solver.get(0, "u")
             obs, reward, done, _, _ = env.step(action)
             rewards_sum += reward
-            #print(f"reward:{reward}")
+            print(f"reward:{reward}")
             if render_movie:
                 env.render_mode = "rgb_array"
                 image= env.render()

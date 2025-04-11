@@ -52,7 +52,7 @@ class QuadrotorStopTask(Task):
         return MpcInput(x0=obs, parameters=mpc_param)
 
     def create_env(self, train: bool) -> gym.Env:
-         return QuadrotorStop(scale_disturbances=0.000)
+         return QuadrotorStop(difficulty="medium")
 
 #
 # @register_task("quadrotor_diag_costs")
