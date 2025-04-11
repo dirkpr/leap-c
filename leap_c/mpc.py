@@ -369,9 +369,11 @@ def get_sample(
 
 
 def activate_globalization(ocp: AcadosOcp):
-    ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
-    ocp.solver_options.globalization = "FUNNEL_L1PEN_LINESEARCH"
+    # ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
+    ocp.solver_options.globalization = "MERIT_BACKTRACKING"
     ocp.solver_options.qp_solver_mu0 = 1e3
+    # ocp.solver_options.qp_solver_iter_max = 100
+    # ocp.solver_options.nlp_solver_max_iter = 200
 
 
 def save_broken_problem(status, param, x0, inp_iterate, ocp_solver: AcadosOcpSolver):
@@ -421,13 +423,13 @@ def _solve_shared(
         solve_stats["time_tot"] = solver.get_stats("time_tot")
 
         if backup_fn is not None and iterate is not None and solver.status != 0:
-            save_broken_problem(
-                status,
-                mpc_input.parameters.p_global,  # type:ignore
-                mpc_input.x0,
-                iterate,
-                solver,
-            )
+            # save_broken_problem(
+            #     status,
+            #     mpc_input.parameters.p_global,  # type:ignore
+            #     mpc_input.x0,
+            #     iterate,
+            #     solver,
+            # )
             # Reattempt with backup
             initialize_ocp_solver(
                 ocp_solver=solver,
