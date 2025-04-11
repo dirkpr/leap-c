@@ -125,7 +125,7 @@ class QuadrotorStop(gym.Env):
         if violates_contraint:
             term = True
 
-        r_control = -0.2 * dt * np.sum((action - self.uref) / 1e3 ** 2)
+        r_control = -0.4 * dt * np.sum(((action - self.uref) / 1e3) ** 2)
         r_alive = 1 * dt
 
         # todo: add cost for control, action, dcontrol, and daction
