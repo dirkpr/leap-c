@@ -371,6 +371,7 @@ def get_sample(
 def activate_globalization(ocp: AcadosOcp):
     ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
     ocp.solver_options.globalization = "FUNNEL_L1PEN_LINESEARCH"
+    ocp.solver_options.qp_solver_mu0 = 1e3
 
 
 def save_broken_problem(status, param, x0, inp_iterate, ocp_solver: AcadosOcpSolver):
