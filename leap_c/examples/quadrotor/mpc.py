@@ -23,7 +23,6 @@ class QuadrotorMpc(Mpc):
             self,
             params: dict[str, np.ndarray] | None = None,
             discount_factor: float = 0.99,
-            n_batch: int = 64,
             N_horizon: int = 3,
             params_learnable: list[str] | None = None,
     ):
@@ -38,8 +37,6 @@ class QuadrotorMpc(Mpc):
             T_horizon: The length (meaning time) of the MPC horizon.
                 One step in the horizon will equal T_horizon/N_horizon simulation time.
             discount_factor: The discount factor for the cost.
-            n_batch: The batch size the MPC should be able to process
-                (currently this is static).
             least_squares_cost: If True, the cost will be the LLS cost, if False it will
                 be the general quadratic cost(see above).
             exact_hess_dyn: If False, the contributions of the dynamics will be left out of the Hessian.
@@ -113,7 +110,7 @@ class QuadrotorMpc(Mpc):
         super().__init__(
             ocp=ocp,
             discount_factor=discount_factor,
-            n_batch=n_batch,
+            init_state_fn=None,
         )
 
 
@@ -200,7 +197,13 @@ def export_parametric_ocp(
     ocp.solver_options.num_threads_in_batch_solve = 1
 
     ocp.solver_options.sim_method_num_stages = 2
+<<<<<<< HEAD
     ocp.solver_options.sim_method_num_steps = 1
+=======
+    ocp.solver_options.sim_method_num_steps = 2
+    ocp.solver_options.tol = 1e-6  # Is default
+    ocp.solver_options.qp_tol = 1e-7
+>>>>>>> main
 
     if isinstance(ocp.model.p, struct_symSX):
         ocp.model.p = ocp.model.p.cat if ocp.model.p is not None else []
