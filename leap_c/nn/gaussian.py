@@ -55,6 +55,7 @@ class SquashedGaussian(nn.Module):
             An output sampled from the TanhNormal, the log probability of this output
             and a statistics dict containing the standard deviation.
         """
+        log_std = 0.5 + 0.01 * log_std + self.log_std_min
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         std = torch.exp(log_std)
 

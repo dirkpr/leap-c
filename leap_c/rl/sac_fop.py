@@ -14,6 +14,7 @@ from leap_c.mpc import MpcBatchedState
 from leap_c.nn.gaussian import SquashedGaussian
 from leap_c.nn.mlp import MLP, MlpConfig
 from leap_c.nn.modules import MpcSolutionModule
+from leap_c.nn.utils import min_max_scaling
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
 from leap_c.rl.sac import SacCritic
@@ -111,24 +112,36 @@ class MpcSacActor(nn.Module):
             Callable[[torch.Tensor, torch.Tensor, MpcBatchedState], MpcBatchedState]
             | None
         ) = None,
+        noise_param: bool = False,
     ):
         super().__init__()
 
         param_space = task.param_space
+        self.param_space = param_space
 
         self.extractor = task.create_extractor(env)
-        self.mlp = MLP(
-            input_sizes=self.extractor.output_size,
-            output_sizes=(param_space.shape[0], param_space.shape[0]),  # type:ignore
-            mlp_cfg=mlp_cfg,
-        )
 
         self.mpc: MpcSolutionModule = task.mpc  # type:ignore
         self.prepare_mpc_input = task.prepare_mpc_input
         self.prepare_mpc_state = prepare_mpc_state
         self.actual_used_mpc_state = None
 
-        self.squashed_gaussian = SquashedGaussian(param_space)  # type:ignore
+        self.noise_param = noise_param
+
+        if noise_param:
+            self.squashed_gaussian = SquashedGaussian(param_space)  # type:ignore
+            self.mlp = MLP(
+                input_sizes=self.extractor.output_size,
+                output_sizes=(param_space.shape[0], param_space.shape[0]),  # type:ignore
+                mlp_cfg=mlp_cfg,
+            )
+        else:
+            self.squashed_gaussian = SquashedGaussian(env.action_space)  # type:ignore
+            self.mlp = MLP(
+                input_sizes=self.extractor.output_size,
+                output_sizes=(param_space.shape[0], env.action_space.shape[0]),  # type:ignore
+                mlp_cfg=mlp_cfg,
+            )
 
     def forward(
         self, obs, mpc_state: MpcBatchedState, deterministic=False
@@ -136,9 +149,18 @@ class MpcSacActor(nn.Module):
         e = self.extractor(obs)
         mean, log_std = self.mlp(e)
 
-        param, log_prob, gaussian_stats = self.squashed_gaussian(
-            mean, log_std, deterministic=deterministic
-        )
+        if self.noise_param:
+            param, log_prob, gaussian_stats = self.squashed_gaussian(
+                mean, log_std, deterministic=deterministic
+            )
+        else:
+            loc = (self.param_space.high + self.param_space.low) / 2.0
+            scale = (self.param_space.high - self.param_space.low) / 2.0
+            loc = torch.tensor(loc, dtype=torch.float32)
+            scale = torch.tensor(scale, dtype=torch.float32)
+
+            y = torch.tanh(mean)
+            param = y * scale + loc
 
         mpc_input = self.prepare_mpc_input(obs, param)
         if self.prepare_mpc_state is not None:
@@ -149,11 +171,20 @@ class MpcSacActor(nn.Module):
         mpc_output, state_solution, mpc_stats = self.mpc(mpc_input, mpc_state)
         self.actual_used_mpc_state = mpc_state
 
+        if not self.noise_param:
+            descaled_action = 0 * mpc_output.u0
+            action, log_prob, gaussian_stats = self.squashed_gaussian(
+                descaled_action, log_std, deterministic=deterministic
+            )
+            action += mpc_output.u0
+        else:
+            action = mpc_output.u0
+
         return SacFopActorOutput(
             param,
             log_prob,
             {**gaussian_stats, **mpc_stats},
-            mpc_output.u0,
+            action,
             mpc_output.status,
             state_solution,
         )
@@ -196,7 +227,9 @@ class SacFopTrainer(Trainer):
         action_dim = np.prod(self.train_env.action_space.shape)  # type: ignore
         param_dim = np.prod(task.param_space.shape)  # type: ignore
         self.target_normalized_entropy = -action_dim
-        self.entropy_norm = param_dim / action_dim
+        # self.entropy_norm = param_dim / action_dim
+        self.entropy_norm = 1.0
+        self.target_normalized_entropy = -action_dim
 
         self.buffer = ReplayBuffer(cfg.sac.buffer_size, device=device)
 
@@ -229,19 +262,6 @@ class SacFopTrainer(Trainer):
                 action
             )
 
-            # todo: the following does not change the logged reward?
-            #nlp_iter_reward = - 0.0 * self.pi.mpc.mpc.ocp_solver.get_stats('nlp_iter')
-            #qp_iter = self.pi.mpc.mpc.ocp_solver.get_stats('qp_iter')
-            #qp_iter_reward = -0.04 * np.sum(qp_iter)
-            #qp_iter_reward = (80-np.sum(qp_iter))/80*10
-            #print(qp_iter_reward)
-            #solver_fail_reward = -10. * np.sum(self.pi.mpc.mpc.ocp_solver.get_stats('qp_stat') == 3)
-            #print(self.pi.mpc.mpc.ocp_solver.get_stats('qp_stat'))
-
-            #reward += (nlp_iter_reward + qp_iter_reward + solver_fail_reward)
-            #self.report_stats("train_trajectory", {"nlp_iter_reward": nlp_iter_reward})
-            #self.report_stats("train_trajectory", {"qp_iter_reward": qp_iter_reward})
-            #self.report_stats("train_trajectory", {"solver_fail_reward": solver_fail_reward})
             if "episode" in info:
                 self.report_stats("train", info["episode"])
 

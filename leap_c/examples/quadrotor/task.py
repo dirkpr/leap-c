@@ -11,22 +11,20 @@ from leap_c.examples.quadrotor.mpc import QuadrotorMpc
 from leap_c.nn.modules import MpcSolutionModule
 from leap_c.registry import register_task
 from leap_c.task import Task
-from .utils import read_from_yaml
-from functools import cached_property
 
 from ...mpc import MpcInput, MpcParameter
 
 
-@register_task("quadrotor_ref")
-class QuadrotorStopTask(Task):
+@register_task("quadrotor_ref_easy")
+class QuadrotorRefEasy(Task):
     def __init__(self):
         mpc = QuadrotorMpc(N_horizon=9, params_learnable=["xref1", "xref2", "xref3"])
         mpc_layer = MpcSolutionModule(mpc)
 
         nx, nu, Nhor = mpc.ocp.dims.nx, mpc.ocp.dims.nu, mpc.ocp.dims.N
         self.nx, self.nu, self.Nhor = nx, nu, Nhor
-        self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-3#-3
-        self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+3#+3
+        self.param_low = copy(mpc.ocp_sensitivity.p_global_values)-1#-3
+        self.param_high = copy(mpc.ocp_sensitivity.p_global_values)+1#+3
 
         super().__init__(mpc_layer)
 
@@ -42,17 +40,32 @@ class QuadrotorStopTask(Task):
             param_nn: Optional[torch.Tensor] = None,
             action: Optional[torch.Tensor] = None,
     ) -> MpcInput:
+        obs = obs[:, :-self.nu]
+
         if param_nn is None:
             raise ValueError("Parameter tensor is required for MPC task.")
 
         mpc_param = MpcParameter(
-            p_global=param_nn,
+            p_global=param_nn,  # type:     
         )
 
         return MpcInput(x0=obs, parameters=mpc_param)
 
     def create_env(self, train: bool) -> gym.Env:
          return QuadrotorStop(difficulty="easy")
+
+
+@register_task("quadrotor_ref_medium")
+class QuadrotorRefMedium(QuadrotorRefEasy):
+    def create_env(self, train: bool) -> gym.Env:
+         return QuadrotorStop(difficulty="medium")
+
+
+@register_task("quadrotor_ref_hard")
+class QuadrotorRefHard(QuadrotorRefEasy):
+    def create_env(self, train: bool) -> gym.Env:
+         return QuadrotorStop(difficulty="hard")
+
 
 #
 # @register_task("quadrotor_diag_costs")

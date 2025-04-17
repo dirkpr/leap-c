@@ -158,6 +158,8 @@ class MpcSacActor(nn.Module):
             mean, log_std, deterministic
         )
 
+        param = param * 0  # + torch.tensor([0.0, 0.0, -1.0])[None, :]
+
         if only_param:
             return SacZopActorOutput(param, log_prob, gauss_stats)
 

@@ -197,13 +197,9 @@ def export_parametric_ocp(
     ocp.solver_options.num_threads_in_batch_solve = 1
 
     ocp.solver_options.sim_method_num_stages = 2
-<<<<<<< HEAD
-    ocp.solver_options.sim_method_num_steps = 1
-=======
     ocp.solver_options.sim_method_num_steps = 2
-    ocp.solver_options.tol = 1e-6  # Is default
-    ocp.solver_options.qp_tol = 1e-7
->>>>>>> main
+    ocp.solver_options.tol = 1e-3  # Is default
+    ocp.solver_options.qp_tol = 1e-4
 
     if isinstance(ocp.model.p, struct_symSX):
         ocp.model.p = ocp.model.p.cat if ocp.model.p is not None else []

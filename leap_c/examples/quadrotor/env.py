@@ -1,15 +1,25 @@
-import gymnasium as gym
-import numpy as np
-import matplotlib.pyplot as plt
-from gymnasium import spaces
-from tensorflow.python.ops.gen_image_ops import scale_and_translate
+from os.path import abspath, dirname
 
-from leap_c.examples.quadrotor.casadi_models import get_rhs_quadrotor, integrate_one_step
+import gymnasium as gym
+from gymnasium import spaces
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+from leap_c.examples.quadrotor.casadi_models import (
+    get_rhs_quadrotor,
+    integrate_one_step,
+)
 from leap_c.examples.quadrotor.utils import read_from_yaml
 
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy.spatial.transform import Rotation as R
-from os.path import dirname, abspath
+
+W_R_ALIVE = 0.2
+W_R_PROGRESS = 1.
+W_R_CONSTRAINT = 5.
+W_R_CONTROL_REG = 0.
+W_R_CONTROL_CONS = 0.
+W_R_CLOSE = 1.
 
 
 class QuadrotorStop(gym.Env):
@@ -20,12 +30,14 @@ class QuadrotorStop(gym.Env):
             render_mode: str | None = None,
             verbose: bool = False,
             difficulty: str = "easy",
+            obs_with_action: bool = True,
     ):
         self.fig, self.axes = None, None
         self.verbose = verbose
-        self.last_dist = None
-        self.last_action = None
         self.uref = np.array([970.437] * 4)
+
+        self.obs_with_action = obs_with_action
+
         if difficulty == "easy":
             scale_disturbances = 0.0
         elif difficulty == "medium":
@@ -69,13 +81,23 @@ class QuadrotorStop(gym.Env):
         u_high = np.array([self.model_params["motor_omega_max"]] * 4, dtype=np.float32)
         u_low = np.array([0.0] * 4, dtype=np.float32)
 
+        self.max_u_dist = np.linalg.norm(u_high - u_low)
+
         self.action_space = spaces.Box(u_low, u_high, dtype=np.float32)
-        self.observation_space = spaces.Box(x_low, x_high, dtype=np.float32)
+        if obs_with_action:
+            obs_high = np.concatenate((x_high, u_high))
+            obs_low = np.concatenate((x_low, u_low))
+        else:
+            obs_high = x_high
+            obs_low = x_low
+        self.observation_space = spaces.Box(obs_low, obs_high, dtype=np.float32)
 
         self.reset_needed = True
         self.trajectory, self.time_steps, self.action_trajectory = None, None, None
         self.t = 0
         self.x = None
+        self.prev_a = None
+        self.last_dist = None
 
         # For rendering
         if not (render_mode is None or render_mode in self.metadata["render_modes"]):
@@ -90,13 +112,14 @@ class QuadrotorStop(gym.Env):
             raise Exception("Call reset before using the step method.")
         dt = self.sim_params["dt"]
 
-        action = np.clip(action, self.action_space.low, self.action_space.high)
+        action = np.clip(action, self.action_space.low, self.action_space.high)  # type: ignore
         self.x = integrate_one_step(self.rhs_func, self.x, action, dt).full().flatten()
         self.x[3:3 + 4] = self.x[3:3 + 4] / np.linalg.norm(self.x[3:3 + 4])
         self.t += dt
         self.trajectory = [self.x] if self.trajectory is None else self.trajectory + [self.x]
         self.time_steps = [self.t] if self.time_steps is None else self.time_steps + [self.t]
         self.action_trajectory = [action] if self.action_trajectory is None else self.action_trajectory + [action]
+
 
         term = False
         trunc = False
@@ -114,29 +137,41 @@ class QuadrotorStop(gym.Env):
         # rewards similar to
         # https://gymnasium.farama.org/environments/mujoco/ant/
         r_progress = 0
+        dist = np.linalg.norm(self.x[:3])
         if self.last_dist is not None:
-            r_progress = dt * 10 * (self.last_dist - np.linalg.norm(self.x[:3]))
+            r_progress = W_R_PROGRESS * (self.last_dist - dist) / 100
         self.last_dist = np.linalg.norm(self.x[:3])
 
-        r_close = dt * 4 * 1 / (np.linalg.norm(self.x[:3]) + 1)
+        r_close = W_R_CLOSE / (np.linalg.norm(self.x[:3]) + 1)
 
         violates_contraint = min(np.sign(-self.x[2] + self.model_params["safety_dist"]), 0)
-        r_constraint = 5 * violates_contraint
+        r_constraint = W_R_CONSTRAINT * violates_contraint
         if violates_contraint:
             term = True
 
-        r_control = -0.4 * dt * np.sum(((action - self.uref) / 1e3) ** 2)
-        r_alive = 1 * dt
+        r_control = -W_R_CONTROL_REG * np.linalg.norm(action - self.uref) / self.max_u_dist
+        r_alive = W_R_ALIVE
+        r_consistent = -W_R_CONTROL_CONS * np.linalg.norm(action - self.prev_a) / self.max_u_dist
+
+        print("r_progress:", r_progress)
+        print("r_constraint:", r_constraint)
+        print("r_alive:", r_alive)
+        print("r_control:", r_control)
+        print("r_close:", r_close)
+        print("r_consistent:", r_consistent)
+
 
         # todo: add cost for control, action, dcontrol, and daction
-        r = r_progress + r_constraint + r_alive + r_control + r_close
+        r = r_progress + r_constraint + r_alive + r_control + r_close + r_consistent
+        r *= 10 * dt
 
         if self.t >= self.sim_params["t_sim"]:
             term = True
 
         self.reset_needed = trunc or term
+        self.prev_a = action
 
-        return self.x, r, term, trunc, {}
+        return self.obs(), r, term, trunc, {}
 
     def reset(
             self, *, seed: int | None = None, options: dict | None = None
@@ -168,10 +203,17 @@ class QuadrotorStop(gym.Env):
                            1, 0, 0, 0,
                            0, 0, 0,
                            0, 0, 0], dtype=np.float32)
+        self.prev_a = np.zeros(4, dtype=np.float32)
         self.reset_needed = False
 
         self.trajectory, self.time_steps, self.action_trajectory = [self.x], [self.t], None
-        return self.x, {}
+        return self.obs(), {}
+
+    def obs(self) -> np.ndarray:
+        if self.obs_with_action:
+            return np.concatenate((self.x, self.prev_a))  # type: ignore
+        else:
+            return self.x  # type: ignore
 
     def render(self):
 
