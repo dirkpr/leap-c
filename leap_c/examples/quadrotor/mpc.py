@@ -1,20 +1,14 @@
-import json
 from collections import OrderedDict
-from copy import copy
-from typing import Dict, List
-
 import casadi as ca
 import numpy as np
-import scipy
-from acados_template import AcadosOcp, AcadosOcpSolver, AcadosOcpIterate, AcadosOcpFlattenedIterate, AcadosModel
+from acados_template import AcadosOcp, AcadosModel
 from casadi.tools import struct_symSX
 
 from leap_c.examples.quadrotor.casadi_models import get_rhs_quadrotor
-from leap_c.examples.quadrotor.utils import read_from_yaml
+from leap_c.examples.quadrotor.utils import read_from_yaml, quat_error
 from leap_c.examples.util import translate_learnable_param_to_p_global, find_param_in_p_or_p_global, \
     assign_lower_triangular
-from leap_c.mpc import Mpc, MpcInput
-from leap_c.utils import set_standard_sensitivity_options
+from leap_c.mpc import Mpc
 from os.path import dirname, abspath
 
 
@@ -44,45 +38,47 @@ class QuadrotorMpc(Mpc):
                 be the general quadratic cost(see above).
             exact_hess_dyn: If False, the contributions of the dynamics will be left out of the Hessian.
         """
-        not_implemented_params = ["m"]
-        if params_learnable is not None:
-            for param in not_implemented_params:
-                if param in params_learnable:
-                    raise ValueError(f"{param} cannot be learnable in this example.")
-
+        # Set the default parameters
         params = OrderedDict([
-            ("xref1", np.array([0.])),#x
-            ("xref2", np.array([0.])),#y
-            ("xref3", np.array([0.])),#z
-            ("xref4", np.array([1.])),
+            ("xref1", np.array([0.])),  # x
+            ("xref2", np.array([0.])),  # y
+            ("xref3", np.array([0.])),  # z
+
+            ("xref4", np.array([0.])),  # angles not quaternions!
             ("xref5", np.array([0.])),
             ("xref6", np.array([0.])),
+
             ("xref7", np.array([0.])),
             ("xref8", np.array([0.])),
             ("xref9", np.array([0.])),
+
             ("xref10", np.array([0.])),
             ("xref11", np.array([0.])),
             ("xref12", np.array([0.])),
-            ("xref13", np.array([0.])),
+
             ("uref", np.array([970.437] * 4)),
-            ("L11", np.array([np.sqrt(1.0)])),
-            ("L22", np.array([np.sqrt(1.0)])),
-            ("L33", np.array([np.sqrt(1.0)])),
-            ("L44", np.array([np.sqrt(0.0001)])),
-            ("L55", np.array([np.sqrt(1.0)])),
-            ("L66", np.array([np.sqrt(1.0)])),
-            ("L77", np.array([np.sqrt(0.0001)])),
+
+            ("L11", np.array([np.sqrt(25.0)])),
+            ("L22", np.array([np.sqrt(25.0)])),
+            ("L33", np.array([np.sqrt(25.0)])),
+
+            ("L44", np.array([np.sqrt(20.)])),
+            ("L55", np.array([np.sqrt(20.)])),
+            ("L66", np.array([np.sqrt(0.01)])),
+
+            ("L77", np.array([np.sqrt(0.01)])),
             ("L88", np.array([np.sqrt(0.01)])),
             ("L99", np.array([np.sqrt(0.01)])),
-            ("L1010", np.array([np.sqrt(0.01)])),
-            ("L1111", np.array([np.sqrt(0.001)])),
-            ("L1212", np.array([np.sqrt(0.001)])),
-            ("L1313", np.array([np.sqrt(0.001)])),
-            ("L1414", np.array([np.sqrt(3e-7)])),
-            ("L1515", np.array([np.sqrt(3e-7)])),
-            ("L1616", np.array([np.sqrt(3e-7)])),
-            ("L1717", np.array([np.sqrt(3e-7)])),
-            ("Lloweroffdiag", np.array([0.0] * (16 + 15 + 14 + 13 + 12 + 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2 + 1))),
+
+            ("L1010", np.array([np.sqrt(0.1)])),
+            ("L1111", np.array([np.sqrt(0.1)])),
+            ("L1212", np.array([np.sqrt(1)])),
+
+            ("L1313", np.array([np.sqrt(3e-5)])),
+            ("L1414", np.array([np.sqrt(3e-5)])),
+            ("L1515", np.array([np.sqrt(3e-5)])),
+            ("L1616", np.array([np.sqrt(3e-5)])),
+            ("Lloweroffdiag", np.array([0.0] * (15 + 14 + 13 + 12 + 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2 + 1))),
         ]) if params is None else params
 
         self.params = params
@@ -92,23 +88,11 @@ class QuadrotorMpc(Mpc):
         ocp = export_parametric_ocp(
             name="quadrotor_lls",
             N_horizon=N_horizon,
-            sensitivity_ocp=False,
             nominal_param=params,
             params_learnable=params_learnable,
         )
 
         self.given_default_param_dict = params
-
-        # with open(dirname(abspath(__file__)) + "/init_iterateN5.json", "r") as file:
-        #     init_iterate = json.load(file)  # Parse JSON into a Python dictionary
-        #     init_iterate = parse_ocp_iterate(init_iterate, N=N_horizon)
-        #
-        # def initialize_default(mpc_input: MpcInput):
-        #     init_iterate.x_traj = [mpc_input.x0] * (ocp.solver_options.N_horizon + 1)
-        #     return init_iterate
-
-        # init_state_fn = initialize_default
-        # Convert dictionary to a namedtuple
 
         super().__init__(
             ocp=ocp,
@@ -121,13 +105,12 @@ def export_parametric_ocp(
         nominal_param: dict[str, np.ndarray],
         name: str = "quadrotor",
         N_horizon: int = 5,
-        sensitivity_ocp: bool = False,
         params_learnable: list[str] | None = None,
 ) -> AcadosOcp:
     ocp = AcadosOcp()
 
     ######## Dimensions ########
-    dt = 0.04  # 0.005
+    dt = 0.04
 
     ocp.solver_options.N_horizon = N_horizon
     ocp.solver_options.tf = N_horizon * dt
@@ -141,8 +124,8 @@ def export_parametric_ocp(
     model_params = read_from_yaml(dirname(abspath(__file__)) + "/model_params.yaml")
 
     # For now, no mass parameter
-    x, u, p, rhs, rhs_func = get_rhs_quadrotor(model_params, model_fidelity="low", sym_params=False)
-    ocp.model.disc_dyn_expr = disc_dyn_expr(rhs, x, u, p, dt)
+    x, u, rhs, rhs_func = get_rhs_quadrotor(model_params, model_fidelity="low")
+    ocp.model.disc_dyn_expr = disc_dyn_expr(rhs, x, u, None, dt)
 
     ocp.model.name = name
     ocp.model.x = x
@@ -161,11 +144,16 @@ def export_parametric_ocp(
 
     ocp.cost.W = cost_matrix_casadi(ocp.model)
     ocp.cost.yref = yref_casadi(ocp.model)
-    ocp.model.cost_y_expr = ca.vertcat(ocp.model.x, ocp.model.u)
+    ocp.model.cost_y_expr = ca.vertcat(ocp.model.x[:3],
+                                       quat_error(ocp.model.x[3:7], np.array([1, 0, 0, 0])),
+                                       ocp.model.x[7:],
+                                       ocp.model.u)
 
-    ocp.cost.W_e = ocp.cost.W[:13, :13]
-    ocp.cost.yref_e = ocp.cost.yref[:13]
-    ocp.model.cost_y_expr_e = ocp.model.x
+    ocp.cost.W_e = ocp.cost.W[:12, :12]
+    ocp.cost.yref_e = ocp.cost.yref[:12]
+    ocp.model.cost_y_expr_e = ca.vertcat(ocp.model.x[:3],
+                                         quat_error(ocp.model.x[3:7], np.array([1, 0, 0, 0])),
+                                         ocp.model.x[7:])
 
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
 
@@ -174,17 +162,17 @@ def export_parametric_ocp(
     ocp.constraints.lbx = np.array([model_params["lower_bound_z"]])
     ocp.constraints.ubx = np.array([model_params["upper_bound_z"]])
 
-    ocp.constraints.idxbx_e = np.array([2,7,8,9])
-    ocp.constraints.lbx_e = np.array([model_params["lower_bound_z"],0.,0.,0.])
-    ocp.constraints.ubx_e = np.array([model_params["upper_bound_z"],0.,0.,0.])
+    ocp.constraints.idxbx_e = np.array([2, 7, 8, 9])
+    ocp.constraints.lbx_e = np.array([model_params["lower_bound_z"], 0., 0., 0.])
+    ocp.constraints.ubx_e = np.array([model_params["upper_bound_z"], 0., 0., 0.])
 
     ocp.constraints.idxsbx = np.array([0])
     ocp.cost.zu = ocp.cost.zl = np.array([0])
     ocp.cost.Zu = ocp.cost.Zl = np.array([1e3])
 
     ocp.constraints.idxsbx_e = np.array([0, 1, 2, 3])
-    ocp.cost.zu_e = ocp.cost.zl_e = np.array([0,0,0,0])
-    ocp.cost.Zu_e = ocp.cost.Zl_e = np.array([1e4,1e4,1e4,1e4])
+    ocp.cost.zu_e = ocp.cost.zl_e = np.array([0, 0, 0, 0])
+    ocp.cost.Zu_e = ocp.cost.Zl_e = np.array([1e4, 1e4, 1e4, 1e4])
 
     ######## Constraints ########
     ocp.constraints.x0 = np.array([0] * 13)
@@ -196,7 +184,7 @@ def export_parametric_ocp(
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.integrator_type = "DISCRETE"
     ocp.solver_options.nlp_solver_type = "SQP"
-    ocp.solver_options.nlp_solver_max_iter = 100# dont set to 1!! does not update controls
+    ocp.solver_options.nlp_solver_max_iter = 100  # dont set to 1!! does not update controls
     ocp.solver_options.num_threads_in_batch_solve = 1
 
     ocp.solver_options.sim_method_num_stages = 2
@@ -232,11 +220,11 @@ def disc_dyn_expr(rhs, x, u, p, dt: float) -> ca.SX:
 
 def yref_casadi(model: AcadosModel) -> ca.SX:
     return ca.vertcat(
-        *find_param_in_p_or_p_global([f"xref{i}" for i in range(1, 14)] + ["uref"], model).values())  # type:ignore
+        *find_param_in_p_or_p_global([f"xref{i}" for i in range(1, 13)] + ["uref"], model).values())  # type:ignore
 
 
 def cost_matrix_casadi(model: AcadosModel) -> ca.SX:
-    L = ca.diag(ca.vertcat(*find_param_in_p_or_p_global([f"L{i}{i}" for i in range(1, 18)], model).values()))
+    L = ca.diag(ca.vertcat(*find_param_in_p_or_p_global([f"L{i}{i}" for i in range(1, 17)], model).values()))
     L_offdiag = find_param_in_p_or_p_global(["Lloweroffdiag"], model)["Lloweroffdiag"]
 
     assign_lower_triangular(L, L_offdiag)

@@ -27,11 +27,9 @@ class QuadrotorStop(gym.Env):
         self.last_action = None
         self.uref = np.array([970.437] * 4)
         if difficulty == "easy":
-            scale_disturbances = 0.0
-        elif difficulty == "medium":
-            scale_disturbances = 0.0004
+            model_fidelidy = "low"
         elif difficulty == "hard":
-            scale_disturbances = 0.001
+            model_fidelidy = "high"
         else:
             raise ValueError("Difficulty must be one of easy, medium, or hard.")
 
@@ -41,26 +39,23 @@ class QuadrotorStop(gym.Env):
             "dt": 0.04,
             "t_sim": 5.0
         }
-        x, u, p, rhs, self.rhs_func = get_rhs_quadrotor(self.model_params,
-                                                        model_fidelity="high",
-                                                        scale_disturbances=scale_disturbances,
-                                                        sym_params=False)
+        x, u, rhs, self.rhs_func = get_rhs_quadrotor(self.model_params, model_fidelity=model_fidelidy)
 
         x_high = np.array(
             [
                 4.0, 4.0, 4.0,  # position
-                1.5, 1.5, 1.5, 1.5,  # quaternion
-                50, 50, 50,  # velocity
-                50, 50, 50,  # angular velocity
+                1.1, 1.1, 1.1, 1.1,  # quaternion
+                15, 15, 15,  # velocity
+                15, 15, 15,  # angular velocity
             ],
             dtype=np.float32,
         )
         x_low = np.array(
             [
                 -4.0, -4.0, -4.0,  # position
-                -1, -1, -1, -1,  # quaternion
-                -50, -50, -50,  # velocity
-                -50, -50, -50,  # angular velocity
+                -1.1, -1.1, -1.1, -1.1,  # quaternion
+                -15, -15, -15,  # velocity
+                -15, -15, -15,  # angular velocity
             ],
             dtype=np.float32,
         )

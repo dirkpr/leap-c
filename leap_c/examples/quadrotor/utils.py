@@ -22,7 +22,20 @@ def quaternion_multiply_casadi(q, r):
     return cs.vertcat(t0, t1, t2, t3)
 
 
-import casadi as ca
+def quat_error(q, q_ref):
+    # relative orientation via quaternion multiplication
+    q_aux = cs.vertcat(q[0] * q_ref[0] + q[1] * q_ref[1] + q[2] * q_ref[2] + q[3] * q_ref[3],
+                       -q[1] * q_ref[0] + q[0] * q_ref[1] + q[3] * q_ref[2] - q[2] * q_ref[3],
+                       -q[2] * q_ref[0] - q[3] * q_ref[1] + q[0] * q_ref[2] + q[1] * q_ref[3],
+                       -q[3] * q_ref[0] + q[2] * q_ref[1] - q[1] * q_ref[2] + q[0] * q_ref[3])
+    # attitude errors. SQRT have small quantities added (1e-3) to alleviate the derivative
+    # not being defined at zero, and also because it's in the denominator
+    q_att_denom = cs.sqrt(q_aux[0] * q_aux[0] + q_aux[3] * q_aux[3] + 1e-6)
+    q_att = cs.vertcat(
+        q_aux[0] * q_aux[1] - q_aux[2] * q_aux[3],
+        q_aux[0] * q_aux[2] + q_aux[1] * q_aux[3],
+        q_aux[3]) / q_att_denom
+    return q_att*(-2)
 
 
 def quaternion_inverse_casadi(q):
