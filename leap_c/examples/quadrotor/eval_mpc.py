@@ -7,8 +7,8 @@ from leap_c.examples.quadrotor.mpc import QuadrotorMpc
 
 if __name__ == "__main__":
 
-    env = QuadrotorStop(render_mode="rgb_array", difficulty="easy")
-    mpc = QuadrotorMpc(N_horizon=15)
+    env = QuadrotorStop(render_mode="rgb_array", difficulty="hard")
+    mpc = QuadrotorMpc(N_horizon=10)
     solver = mpc.ocp_solver
     render_movie = True
     record_iterate = False

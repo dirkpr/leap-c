@@ -44,9 +44,9 @@ class QuadrotorMpc(Mpc):
             ("xref2", np.array([0.])),  # y
             ("xref3", np.array([0.])),  # z
 
-            ("xref4", np.array([0.])),  # angles not quaternions!
-            ("xref5", np.array([0.])),
-            ("xref6", np.array([0.])),
+            ("xref4", np.array([-np.pi/2])),  # roll angles not quaternions!
+            ("xref5", np.array([0.])),  # pitch
+            ("xref6", np.array([0.])),  # yaw
 
             ("xref7", np.array([0.])),
             ("xref8", np.array([0.])),
@@ -58,11 +58,11 @@ class QuadrotorMpc(Mpc):
 
             ("uref", np.array([970.437] * 4)),
 
-            ("L11", np.array([np.sqrt(25.0)])),
-            ("L22", np.array([np.sqrt(25.0)])),
-            ("L33", np.array([np.sqrt(25.0)])),
+            ("L11", np.array([np.sqrt(45.0)])),
+            ("L22", np.array([np.sqrt(45.0)])),
+            ("L33", np.array([np.sqrt(45.0)])),
 
-            ("L44", np.array([np.sqrt(20.)])),
+            ("L44", np.array([np.sqrt(200.)])),
             ("L55", np.array([np.sqrt(20.)])),
             ("L66", np.array([np.sqrt(0.01)])),
 

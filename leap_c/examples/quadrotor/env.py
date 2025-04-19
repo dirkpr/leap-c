@@ -10,6 +10,7 @@ from leap_c.examples.quadrotor.utils import read_from_yaml
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.spatial.transform import Rotation as R
 from os.path import dirname, abspath
+from pyquaternion import Quaternion
 
 
 class QuadrotorStop(gym.Env):
@@ -20,18 +21,20 @@ class QuadrotorStop(gym.Env):
             render_mode: str | None = None,
             verbose: bool = False,
             difficulty: str = "easy",
+            look_down_reward: bool = False,
     ):
         self.fig, self.axes = None, None
         self.verbose = verbose
         self.last_dist = None
         self.last_action = None
+        self.look_down_reward = look_down_reward
         self.uref = np.array([970.437] * 4)
         if difficulty == "easy":
             model_fidelidy = "low"
         elif difficulty == "hard":
             model_fidelidy = "high"
         else:
-            raise ValueError("Difficulty must be one of easy, medium, or hard.")
+            raise ValueError("Difficulty must be one of easy, or hard.")
 
         self.model_params = read_from_yaml(dirname(abspath(__file__)) + "/model_params.yaml")
 
@@ -46,7 +49,7 @@ class QuadrotorStop(gym.Env):
                 4.0, 4.0, 4.0,  # position
                 1.1, 1.1, 1.1, 1.1,  # quaternion
                 15, 15, 15,  # velocity
-                15, 15, 15,  # angular velocity
+                50, 50, 50,  # angular velocity
             ],
             dtype=np.float32,
         )
@@ -55,7 +58,7 @@ class QuadrotorStop(gym.Env):
                 -4.0, -4.0, -4.0,  # position
                 -1.1, -1.1, -1.1, -1.1,  # quaternion
                 -15, -15, -15,  # velocity
-                -15, -15, -15,  # angular velocity
+                -50, -50, -50,  # angular velocity
             ],
             dtype=np.float32,
         )
@@ -110,10 +113,10 @@ class QuadrotorStop(gym.Env):
         # https://gymnasium.farama.org/environments/mujoco/ant/
         r_progress = 0
         if self.last_dist is not None:
-            r_progress = dt * 10 * (self.last_dist - np.linalg.norm(self.x[:3]))
+            r_progress = dt * 5 * (self.last_dist - np.linalg.norm(self.x[:3]))
         self.last_dist = np.linalg.norm(self.x[:3])
 
-        r_close = dt * 4 * 1 / (np.linalg.norm(self.x[:3]) + 1)
+        r_close = dt * 40 * 1 / (np.linalg.norm(self.x[:3]) + 1)
 
         violates_contraint = min(np.sign(-self.x[2] + self.model_params["safety_dist"]), 0)
         r_constraint = 5 * violates_contraint
@@ -123,8 +126,15 @@ class QuadrotorStop(gym.Env):
         r_control = -0.4 * dt * np.sum(((action - self.uref) / 1e3) ** 2)
         r_alive = 1 * dt
 
+        r_look_down = 0
+        if self.look_down_reward:
+            quat = self.x[3:7]
+            q = Quaternion(w=quat[0], x=quat[1], y=quat[2], z=quat[3])
+            yaw, pitch, roll = q.yaw_pitch_roll
+            r_look_down = 40 * dt * np.abs(roll + np.pi / 2)
+
         # todo: add cost for control, action, dcontrol, and daction
-        r = r_progress + r_constraint + r_alive + r_control + r_close
+        r = r_progress + r_constraint + r_alive + r_control + r_close + r_look_down
 
         if self.t >= self.sim_params["t_sim"]:
             term = True
