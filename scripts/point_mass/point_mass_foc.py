@@ -1,8 +1,4 @@
 """Main script to run experiments."""
-<<<<<<< HEAD:scripts/point_mass/point_mass_foc.py
-import datetime
-=======
->>>>>>> main:scripts/quadrotor/quadrotor_mass_sac.py
 from argparse import ArgumentParser
 from pathlib import Path
 

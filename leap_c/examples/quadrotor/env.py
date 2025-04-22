@@ -1,17 +1,21 @@
 from os.path import abspath, dirname
+from os.path import abspath, dirname
 
 import gymnasium as gym
 from gymnasium import spaces
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Rotation as R
 
 from leap_c.examples.quadrotor.casadi_models import (
-    get_rhs_quadrotor,
-    integrate_one_step,
+      get_rhs_quadrotor,
+      integrate_one_step,
 )
 from leap_c.examples.quadrotor.utils import read_from_yaml
+from pyquaternion import Quaternion
 
 
 W_R_ALIVE = 0.2
@@ -31,21 +35,23 @@ class QuadrotorStop(gym.Env):
             verbose: bool = False,
             difficulty: str = "easy",
             obs_with_action: bool = True,
+            look_down_reward: bool = False,
     ):
         self.fig, self.axes = None, None
         self.verbose = verbose
+        self.last_dist = None
+        self.last_action = None
+        self.look_down_reward = look_down_reward
         self.uref = np.array([970.437] * 4)
 
         self.obs_with_action = obs_with_action
 
         if difficulty == "easy":
-            scale_disturbances = 0.0
-        elif difficulty == "medium":
-            scale_disturbances = 0.0004
+            model_fidelidy = "low"
         elif difficulty == "hard":
-            scale_disturbances = 0.001
+            model_fidelidy = "high"
         else:
-            raise ValueError("Difficulty must be one of easy, medium, or hard.")
+            raise ValueError("Difficulty must be one of easy, or hard.")
 
         self.model_params = read_from_yaml(dirname(abspath(__file__)) + "/model_params.yaml")
 
@@ -53,16 +59,13 @@ class QuadrotorStop(gym.Env):
             "dt": 0.04,
             "t_sim": 5.0
         }
-        x, u, p, rhs, self.rhs_func = get_rhs_quadrotor(self.model_params,
-                                                        model_fidelity="high",
-                                                        scale_disturbances=scale_disturbances,
-                                                        sym_params=False)
+        x, u, rhs, self.rhs_func = get_rhs_quadrotor(self.model_params, model_fidelity=model_fidelidy)
 
         x_high = np.array(
             [
                 4.0, 4.0, 4.0,  # position
-                1.5, 1.5, 1.5, 1.5,  # quaternion
-                50, 50, 50,  # velocity
+                1.1, 1.1, 1.1, 1.1,  # quaternion
+                15, 15, 15,  # velocity
                 50, 50, 50,  # angular velocity
             ],
             dtype=np.float32,
@@ -70,8 +73,8 @@ class QuadrotorStop(gym.Env):
         x_low = np.array(
             [
                 -4.0, -4.0, -4.0,  # position
-                -1, -1, -1, -1,  # quaternion
-                -50, -50, -50,  # velocity
+                -1.1, -1.1, -1.1, -1.1,  # quaternion
+                -15, -15, -15,  # velocity
                 -50, -50, -50,  # angular velocity
             ],
             dtype=np.float32,
@@ -143,6 +146,9 @@ class QuadrotorStop(gym.Env):
         self.last_dist = np.linalg.norm(self.x[:3])
 
         r_close = W_R_CLOSE / (np.linalg.norm(self.x[:3]) + 1)
+        self.last_dist = np.linalg.norm(self.x[:3])
+
+        r_close = dt * 40 * 1 / (np.linalg.norm(self.x[:3]) + 1)
 
         violates_contraint = min(np.sign(-self.x[2] + self.model_params["safety_dist"]), 0)
         r_constraint = W_R_CONSTRAINT * violates_contraint
@@ -161,8 +167,15 @@ class QuadrotorStop(gym.Env):
         print("r_consistent:", r_consistent)
 
 
+        r_look_down = 0
+        if self.look_down_reward:
+            quat = self.x[3:7]
+            q = Quaternion(w=quat[0], x=quat[1], y=quat[2], z=quat[3])
+            yaw, pitch, roll = q.yaw_pitch_roll
+            r_look_down = 40 * dt * np.abs(roll + np.pi / 2)
+
         # todo: add cost for control, action, dcontrol, and daction
-        r = r_progress + r_constraint + r_alive + r_control + r_close + r_consistent
+        r = r_progress + r_constraint + r_alive + r_control + r_close + r_consistent + r_look_dwon
         r *= 10 * dt
 
         if self.t >= self.sim_params["t_sim"]:
