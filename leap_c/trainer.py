@@ -352,7 +352,7 @@ class Trainer(ABC, nn.Module):
                 self.state.scores.append(val_score)
 
                 if val_score > self.state.max_score:
-                    self.state.max_score= val_score
+                    self.state.max_score = val_score
                     if self.cfg.val.ckpt_modus == "best":
                         self.save()
 
