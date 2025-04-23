@@ -413,7 +413,7 @@ class Trainer(ABC, nn.Module):
             }
             self.report_stats("val_policy", stats_policy, self.state.step)
 
-        return -float(stats_rollout["score"])
+        return float(stats_rollout["score"])
 
     def _ckpt_path(
         self, name: str, suffix: str, basedir: str | Path | None = None
