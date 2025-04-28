@@ -1,7 +1,6 @@
 """Provides a trainer for a Soft Actor-Critic algorithm that uses a differentiable MPC
 layer for the policy network."""
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, NamedTuple
 
@@ -16,10 +15,10 @@ from leap_c.nn.mlp import MLP, MlpConfig
 from leap_c.nn.modules import MpcSolutionModule
 from leap_c.registry import register_trainer
 from leap_c.rl.replay_buffer import ReplayBuffer
-from leap_c.rl.sac import SacCritic
+from leap_c.rl.sac import SacBaseConfig, SacCritic
 from leap_c.rl.utils import soft_target_update
 from leap_c.task import Task
-from leap_c.trainer import BaseConfig, LogConfig, TrainConfig, Trainer, ValConfig
+from leap_c.trainer import Trainer
 
 
 @dataclass(kw_only=True)
@@ -159,12 +158,12 @@ class MpcSacActor(nn.Module):
         )
 
 
-@register_trainer("sac_fop", SacFopBaseConfig())
+@register_trainer("sac_fop", SacBaseConfig())
 class SacFopTrainer(Trainer):
-    cfg: SacFopBaseConfig
+    cfg: SacBaseConfig
 
     def __init__(
-        self, task: Task, output_path: str | Path, device: str, cfg: SacFopBaseConfig
+        self, task: Task, output_path: str | Path, device: str, cfg: SacBaseConfig
     ):
         """Initializes the trainer with a configuration, output path, and device.
 
@@ -186,21 +185,24 @@ class SacFopTrainer(Trainer):
         self.q_optim = torch.optim.Adam(self.q.parameters(), lr=cfg.sac.lr_q)
 
         self.pi = MpcSacActor(task, self.train_env, cfg.sac.actor_mlp)
-        self.pi.mpc.mpc.num_threads_batch_methods = (
-            cfg.sac.num_threads_mpc
-        )
+        # TODO (Jasper): This should be refactored and is a config of the acados solver.
+        self.pi.mpc.mpc.num_threads_batch_methods = NUM_THREADS_ACADOS_BATCH
         self.pi_optim = torch.optim.Adam(self.pi.parameters(), lr=cfg.sac.lr_pi)
 
-        self.log_alpha = nn.Parameter(torch.tensor(self.cfg.sac.init_alpha).log())  # type: ignore
-        self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=cfg.sac.lr_alpha)  # type: ignore
-        action_dim = np.prod(self.train_env.action_space.shape)  # type: ignore
-        param_dim = np.prod(task.param_space.shape)  # type: ignore
-        self.target_normalized_entropy = -action_dim
-        self.entropy_norm = param_dim / action_dim
+        self.log_alpha = nn.Parameter(torch.tensor(cfg.sac.init_alpha).log())  # type: ignore
+
+        if self.cfg.sac.lr_alpha is not None:
+            self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=cfg.sac.lr_alpha)  # type: ignore
+            action_dim = np.prod(self.train_env.action_space.shape)  # type: ignore
+            param_dim = np.prod(task.param_space.shape)  # type: ignore
+            self.target_entropy = (
+                -action_dim
+                if cfg.sac.target_entropy is None
+                else cfg.sac.target_entropy
+            )
+            self.entropy_norm = param_dim / action_dim
 
         self.buffer = ReplayBuffer(cfg.sac.buffer_size, device=device)
-
-        self.to(device)
 
     def train_loop(self) -> Iterator[int]:
         is_terminated = is_truncated = True
@@ -217,7 +219,9 @@ class SacFopTrainer(Trainer):
 
             with torch.no_grad():
                 # TODO (Jasper): Argument order is not consistent
-                pi_output: SacFopActorOutput = self.pi(obs_batched, policy_state, deterministic=False)
+                pi_output: SacFopActorOutput = self.pi(
+                    obs_batched, policy_state, deterministic=False
+                )
                 action = pi_output.action.cpu().numpy()[0]
                 param = pi_output.param.cpu().numpy()[0]
 
@@ -282,13 +286,13 @@ class SacFopTrainer(Trainer):
                 log_p = pi_o.log_prob / self.entropy_norm
 
                 # update temperature
-                alpha_loss = -torch.mean(
-                    self.log_alpha.exp()
-                    * (log_p + self.target_normalized_entropy).detach()
-                )
-                self.alpha_optim.zero_grad()
-                alpha_loss.backward()
-                self.alpha_optim.step()
+                if self.alpha_optim is not None:
+                    alpha_loss = -torch.mean(
+                        self.log_alpha.exp() * (log_p + self.target_entropy).detach()
+                    )
+                    self.alpha_optim.zero_grad()
+                    alpha_loss.backward()
+                    self.alpha_optim.step()
 
                 # update critic
                 alpha = self.log_alpha.exp().item()
@@ -357,4 +361,7 @@ class SacFopTrainer(Trainer):
 
     @property
     def optimizers(self) -> list[torch.optim.Optimizer]:
+        if self.cfg.sac.lr_alpha is None:
+            return [self.q_optim, self.pi_optim]
+
         return [self.q_optim, self.pi_optim, self.alpha_optim]
