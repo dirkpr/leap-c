@@ -18,7 +18,7 @@ class NLinkRobotMpc(Mpc):
     def __init__(
         self,
         params: dict[str, np.ndarray] | None = None,
-        learnable_params: list[str] | None = ["m"],
+        learnable_params: list[str] | None = None,
         N_horizon: int = 20,
         T_horizon: float = 2.0,
         discount_factor: float = 0.99,
@@ -32,6 +32,9 @@ class NLinkRobotMpc(Mpc):
                 "m": 1.0,
                 "l": 1.0,
                 "I": 1.0,
+                "xy_e_ref": np.array([1.0, 1.0]),
+                "q_sqrt_diag": np.array([1.0, 1.0]),
+                "r_sqrt_diag": np.array([1.0, 1.0]),
             }
             if params is None
             else params
@@ -59,7 +62,7 @@ class NLinkRobotMpc(Mpc):
         )
 
 
-def get_inertia_matrix(
+def compute_inertia_matrix(
     theta: Iterable, n_link: int, length: float, mass: float, inertia: float
 ) -> np.ndarray:
     """
@@ -104,65 +107,54 @@ def get_inertia_matrix(
     return M
 
 
-def get_coriolis_matrix(
-    theta: ca.SX,
-    dtheta: ca.SX,
-    n_link: int,
-    length: ca.SX,
-    mass: ca.SX,
-):
+def compute_coriolis_matrix(M_expr, theta, theta_dot):
     """
-    Calculate the Coriolis matrix C(θ, θ̇ ).
+    Compute the Coriolis matrix using the property that Ṁ - 2C is skew-symmetric, which means Ṁ - 2C = -(Ṁ - 2C)ᵀ.
 
     Parameters:
     -----------
-    theta : array-like
-        Joint angles [θ₁, θ₂, ..., θₙ]
-    theta_dot : array-like
-        Joint angular velocities [θ̇₁, θ̇₂, ..., θ̇ₙ]
-    n_link : int
-        Number of links
-    length : float
-        Length of each link
-    mass : float
-        Mass of each link
-    inertia : float
-        Moment of inertia of each link
+    M_expr : casadi.SX
+        Symbolic expression for the inertia matrix M(θ)
+    theta : casadi.SX
+        Symbolic joint angle vector
+    theta_dot : casadi.SX
+        Symbolic joint velocity vector
 
     Returns:
     --------
-    C : ndarray
-        n×n Coriolis matrix
+    C : casadi.SX
+        Coriolis matrix expression
     """
-    C = ca.SX.zeros((n_link, n_link))
+    n = theta.shape[0]  # Number of joints
 
-    # Pre-compute derivatives of inertia matrix elements
-    dM_dtheta = ca.SX.zeros(n_link, n_link, n_link)
+    # Initialize the Coriolis matrix
+    C = ca.SX.zeros(n, n)
 
-    # TODO: Compute dM_dtheta using the symbolic expression for M(θ) instead
-    for i in range(n_link):
-        for j in range(n_link):
-            for k in range(n_link):
-                # Only compute derivatives for relevant elements
-                if k >= max(i, j):
-                    # Sum of angles for the sine term
-                    sum_angles = ca.sum1(theta[max(i, j) : k + 1])
-                    dM_dtheta[i, j, k] = -mass * (length**2) * ca.sin(sum_angles)
+    # Use the property that Ṁ - 2C is skew-symmetric
+    # Therefore: 2C = Ṁ - S where S is a skew-symmetric matrix
+    # Since C has to satisfy the energy conservation principle, it can be shown that:
+    # C[i,j] = Σₖ (0.5 * (∂M[i,j]/∂θₖ + ∂M[i,k]/∂θⱼ - ∂M[j,k]/∂θᵢ)) * θ̇ₖ
 
-    # Compute Coriolis matrix using Christoffel symbols
-    for i in range(n_link):
-        for j in range(n_link):
-            for k in range(n_link):
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+                # Compute the Christoffel symbols and form the Coriolis matrix
+                dM_ij_dtheta_k = ca.jacobian(M_expr[i, j], theta[k])
+                dM_ik_dtheta_j = ca.jacobian(M_expr[i, k], theta[j])
+                dM_jk_dtheta_i = ca.jacobian(M_expr[j, k], theta[i])
+
                 C[i, j] += (
                     0.5
-                    * (dM_dtheta[i, j, k] + dM_dtheta[i, k, j] - dM_dtheta[j, k, i])
-                    * dtheta[k]
+                    * (dM_ij_dtheta_k + dM_ik_dtheta_j - dM_jk_dtheta_i)
+                    * theta_dot[k]
                 )
 
     return C
 
 
-def forward_kinematics(theta: ca.SX, l: ca.SX) -> tuple[float, float]:
+def forward_kinematics(
+    theta: ca.SX | np.ndarray, l: ca.SX | float
+) -> tuple[float, float]:
     """
     Calculate the joint positions given joint angles.
 
@@ -175,13 +167,28 @@ def forward_kinematics(theta: ca.SX, l: ca.SX) -> tuple[float, float]:
     --------
         Joint positions in Cartesian space
     """
-    # Cumulative sum of angles for each link
-    cum_theta = ca.cumsum(theta)
 
-    # Calculate positions for all joints including end-effector
-    # return l * np.cumsum(np.vstack((np.cos(cum_theta), np.sin(cum_theta))), axis=1)
-    # TODO: Check that the above euqation is correctly turned into casadi
-    return l * ca.vertcat(ca.cos(cum_theta), ca.sin(cum_theta))
+    # Check if theta is a CasADi SX object
+    if isinstance(theta, ca.SX):
+        xy = ca.SX.zeros(theta.shape[0], 2)
+        xy[0, :] = l * ca.vertcat(ca.cos(theta[0]), ca.sin(theta[0]))
+        for i in range(1, theta.shape[0]):
+            xy[i, 0] = xy[i - 1, 0] + l * ca.cos(ca.sum1(theta[0 : i + 1]))
+            xy[i, 1] = xy[i - 1, 1] + l * ca.sin(ca.sum1(theta[0 : i + 1]))
+
+        return xy
+
+    # Check if theta is a numpy array
+    if isinstance(theta, np.ndarray):
+        xy = np.zeros((theta.shape[0], 2))
+        xy[0, :] = l * np.array([np.cos(theta[0]), np.sin(theta[0])])
+        for i in range(1, theta.shape[0]):
+            xy[i, 0] = xy[i - 1, 0] + l * np.cos(np.sum(theta[0 : i + 1]))
+            xy[i, 1] = xy[i - 1, 1] + l * np.sin(np.sum(theta[0 : i + 1]))
+
+        return xy
+
+    raise ValueError("theta must be either a CasADi SX object or a numpy array.")
 
 
 def get_f_expl_expr(ocp: AcadosOcp) -> ca.SX:
@@ -201,26 +208,17 @@ def get_f_expl_expr(ocp: AcadosOcp) -> ca.SX:
     # Get m, l, I from p or p_global
     m, l, I = find_param_in_p_or_p_global(["m", "l", "I"], ocp.model).values()
     # Get inertia matrix M(θ)
-    M = get_inertia_matrix(
+    M = compute_inertia_matrix(
         theta=theta, n_link=ocp.dims.nx // 2, length=l, mass=m, inertia=I
     )
     # Get Coriolis matrix C(θ, dθ̇ )
-    C = get_coriolis_matrix(
-        theta=theta,
-        dtheta=dtheta,
-        n_link=ocp.dims.nx // 2,
-        length=l,
-        mass=m,
-        inertia=I,
-    )
+    C = compute_coriolis_matrix(M_expr=M, theta=theta, theta_dot=dtheta)
+
     # Get joint torques τ from u
     tau = ocp.model.u
 
     # Compute angular accelerations using the equation of motion M(θ) * dθ̈ + C(θ, dθ̇ ) * dθ̇ = τ
-    ddtheta = ca.mtimes(ca.inv(M), tau - ca.mtimes(C, dtheta))
-
-    # Alternatively, can we use the solve function to compute ddtheta?
-    # ddtheta = ca.solve(M, tau - ca.mtimes(C, dtheta))
+    ddtheta = ca.solve(M, tau - ca.mtimes(C, dtheta))
 
     return ca.vertcat(dtheta, ddtheta)
 
@@ -229,22 +227,83 @@ def get_disc_dyn_expr(ocp: AcadosOcp) -> ca.SX:
     pass
 
 
-def get_cost_expr_nonlinear_ls_cost(ocp: AcadosOcp) -> ca.SX:
-    # TODO: Extract end-effector position from x
-    n_link = ocp.model.x // 2
-    # TODO: Extract desired end-effector position from p_global
-    # TODO: Define the cost function as the weighted squared difference between the
-    # end-effector position and the desired position
-    # TODO: Add the weighted squared torque cost
+def create_diag_matrix(
+    v_diag: np.ndarray | ca.SX,
+) -> np.ndarray | ca.SX:
+    if any(isinstance(i, ca.SX) for i in [v_diag]):
+        return ca.diag(v_diag)
+    else:
+        return np.diag(v_diag)
+
+
+def compute_position_cost(ocp: AcadosOcp) -> ca.SX:
+    """
+    Compute the cost associated with the end-effector position.
+
+    Parameters:
+    -----------
+    ocp : AcadosOcp
+        The OCP object containing the model and parameters.
+
+    Returns:
+    --------
+    cost : casadi.SX
+        The cost associated with the end-effector position.
+    """
+
+    # Get the end-effector position using forward kinematics
+    q_sqrt_diag = find_param_in_p_or_p_global(["q_sqrt_diag"], ocp.model)["q_sqrt_diag"]
+    Q = create_diag_matrix(q_sqrt_diag**2)
+
+    # Compute end-effector position
+    l = find_param_in_p_or_p_global(["l"], ocp.model)["l"]
+    theta = ocp.model.x[0 : ocp.model.x.shape[0] // 2]
+    xy_e = forward_kinematics(theta, l)[-1, :]  # Get the last position
+
+    # Reshape xy_e to column vector
+    xy_e = ca.reshape(xy_e, -1, 1)
+
+    # Extract desired end-effector position from p_global
+    xy_e_ref = find_param_in_p_or_p_global(["xy_e_ref"], ocp.model)["xy_e_ref"]
+
+    return ca.mtimes(ca.mtimes((xy_e - xy_e_ref).T, Q), (xy_e - xy_e_ref))
+
+
+def compute_torque_cost(ocp: AcadosOcp) -> ca.SX:
+    """
+    Compute the cost associated with the joint torques.
+
+    Parameters:
+    -----------
+    ocp : AcadosOcp
+        The OCP object containing the model and parameters.
+
+    Returns:
+    --------
+    cost : casadi.SX
+        The cost associated with the joint torques.
+    """
+    r_sqrt_diag = find_param_in_p_or_p_global(["r_sqrt_diag"], ocp.model)["r_sqrt_diag"]
+    R = create_diag_matrix(r_sqrt_diag**2)
+
+    return ca.mtimes(ca.mtimes((ocp.model.u).T, R), ocp.model.u)
+
+
+def get_intermediate_cost_expr(ocp: AcadosOcp) -> ca.SX:
     # TODO: Think about using the inertia matrix M(θ) to compute the torque cost?
     # TODO: Think about using the inverse kinematics solution from endeffector to joint
     # angles to compute the cost?
-    pass
+
+    return compute_position_cost(ocp=ocp) + compute_torque_cost(ocp=ocp)
+    # return compute_position_cost(ocp=ocp) + compute_torque_cost(ocp=ocp)
 
 
-def get_cost_expr_nonlinear_ls_cost_e(ocp: AcadosOcp) -> ca.SX:
-    # TODO: Same as regular stage cost, but no torque cost
-    pass
+def get_terminal_cost_expr(ocp: AcadosOcp) -> ca.SX:
+    # TODO: Think about using the inertia matrix M(θ) to compute the torque cost?
+    # TODO: Think about using the inverse kinematics solution from endeffector to joint
+    # angles to compute the cost?
+
+    return compute_position_cost(ocp=ocp)
 
 
 def export_parametric_ocp(
@@ -252,7 +311,7 @@ def export_parametric_ocp(
     name: str = "n_link_robot",
     learnable_params: list[str] | None = None,
     N_horizon: int = 50,
-    tf: float = 2.0,
+    tf: float = 5.0,
     n_link: int = 2,
 ) -> AcadosOcp:
     ocp = AcadosOcp()
@@ -281,37 +340,57 @@ def export_parametric_ocp(
     ocp.model.f_expl_expr = get_f_expl_expr(ocp=ocp)
     # ocp.model.disc_dyn_expr = get_disc_dyn_expr(ocp=ocp)
 
-    ocp.model.cost_expr_ext_cost_0 = get_cost_expr_nonlinear_ls_cost(ocp=ocp)
-    ocp.cost.cost_type_0 = "NONLINEAR_LS"
-    ocp.model.cost_expr_ext_cost = get_cost_expr_nonlinear_ls_cost(ocp=ocp)
-    ocp.cost.cost_type = "NONLINEAR_LS"
-    ocp.model.cost_expr_ext_cost_e = get_cost_expr_nonlinear_ls_cost_e(ocp=ocp)
-    ocp.cost.cost_type_e = "NONLINEAR_LS"
+    # ocp.model.cost_expr_ext_cost_0 = get_cost_expr_nonlinear_ls_cost(ocp=ocp)
+    # ocp.cost.cost_type_0 = "NONLINEAR_LS"
+    ocp.model.cost_expr_ext_cost = get_intermediate_cost_expr(ocp=ocp)
+    ocp.cost.cost_type = "EXTERNAL"
+    ocp.model.cost_expr_ext_cost_e = get_terminal_cost_expr(ocp=ocp)
+    ocp.cost.cost_type_e = "EXTERNAL"
 
     # Initial state for n_link robot. All angles and velocities should be zero.
     ocp.constraints.x0 = np.zeros((ocp.dims.nx,))
 
     # Box constraints on u
-    ocp.constraints.lbu = ...  # TODO: Minimum torque constraint. Add later.
-    ocp.constraints.ubu = ...  # TODO: Maximum torque constraint. Add later.
+    ocp.constraints.lbu = np.array([-100] * ocp.dims.nu)  # [Nm] Minimum torque.
+    ocp.constraints.ubu = np.array([+100] * ocp.dims.nu)  # [Nm] Maximum torque.
     ocp.constraints.idxbu = np.arange(0, ocp.dims.nu)
 
     # Box constraints on x
-    ocp.constraints.lbx = (
-        ...
-    )  # TODO: Minimum angle constraint. Minimum angular velocity constraint. Add later.
-    ocp.constraints.ubx = (
-        ...
-    )  # TODO: Maximum angle constraint. Maximum angular velocity constraint. Add later.
+    ocp.constraints.lbx = np.array(
+        [
+            [np.deg2rad(-120)]  # [rad] Minimum angle constraint.
+            * np.ones(ocp.dims.nx // 2),
+            [np.deg2rad(-120)]  # [rad/s] Minimum angular velocity constraint.
+            * np.ones(ocp.dims.nx // 2),
+        ]
+    )
+    ocp.constraints.ubx = -ocp.constraints.lbx
     ocp.constraints.idxbx = np.arange(0, ocp.dims.nx)
 
     # Nonlinear constraints on x for joint positions
 
     # TODO: Define the joint positions via foward kinematics. Remain inside the workspace.
     # TODO: Define the obstacle avoidance constraints.
-    ocp.model.con_h_expr = ...
-    ocp.constraints.lh = ...  # Define lower bounds for joint positions
-    ocp.constraints.uh = ...  # Define upper bounds for joint positions
+
+    xy = forward_kinematics(
+        theta=ocp.model.x[0 : ocp.dims.nx // 2],
+        l=find_param_in_p_or_p_global(["l"], ocp.model)["l"],
+    )
+    x = ca.reshape(xy[0, :], -1, 1)
+    y = ca.reshape(xy[1, :], -1, 1)
+
+    xmin = -10.0
+    xmax = +10.0
+    ymin = -10.0
+    ymax = +10.0
+
+    ocp.model.con_h_expr = ca.vertcat(x, y)
+    ocp.constraints.lh = np.array(
+        [xmin] * n_link + [ymin] * n_link
+    )  # Define lower bounds for joint positions
+    ocp.constraints.uh = np.array(
+        [xmax] * n_link + [ymax] * n_link
+    )  # Define upper bounds for joint positions
 
     # #############################
     if isinstance(ocp.model.p, struct_symSX):
@@ -326,12 +405,13 @@ def export_parametric_ocp(
 
 
 def configure_ocp_solver(ocp: AcadosOcp, exact_hess_dyn: bool):
-    ocp.solver_options.integrator_type = "DISCRETE"
+    # ocp.solver_options.integrator_type = "DISCRETE"
+    ocp.solver_options.integrator_type = "ERK"
     ocp.solver_options.nlp_solver_type = "SQP"
     ocp.solver_options.hessian_approx = "EXACT"
     ocp.solver_options.exact_hess_dyn = exact_hess_dyn
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.qp_solver_ric_alg = 1
-    ocp.solver_options.with_value_sens_wrt_params = True
-    ocp.solver_options.with_solution_sens_wrt_params = True
+    ocp.solver_options.with_value_sens_wrt_params = False
+    ocp.solver_options.with_solution_sens_wrt_params = False
     ocp.solver_options.with_batch_functionality = True
