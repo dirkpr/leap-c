@@ -11,6 +11,9 @@ from leap_c.examples.util import (
 from leap_c.mpc import Mpc
 from typing import Iterable
 
+import pinocchio as pin
+from pinocchio import casadi as cpin
+
 
 class NLinkRobotMpc(Mpc):
     """docstring for NLinkRobotMpc."""
@@ -26,12 +29,13 @@ class NLinkRobotMpc(Mpc):
         export_directory: Path | None = None,
         export_directory_sensitivity: Path | None = None,
         throw_error_if_u0_is_outside_ocp_bounds: bool = True,
-        n_link: int = 2,
+        urdf_path: str | None = None,
     ):
+        if urdf_path is None:
+            raise ValueError("urdf_path must be provided.")
+
         params = (
             {
-                "m": 1.0,
-                "l": 1.0,
                 "xy_e_ref": np.array([1.0, 1.0]),
                 "q_sqrt_diag": np.array([10.0, 10.0]),
                 "r_sqrt_diag": np.array([0.05, 0.05]),
@@ -49,19 +53,30 @@ class NLinkRobotMpc(Mpc):
             learnable_params=learnable_params,
             N_horizon=N_horizon,
             tf=T_horizon,
-            n_link=n_link,
+            urdf_path=urdf_path,
         )
 
         ocp_solver = AcadosOcpSolver(ocp)
 
-        theta_ref = np.array([np.deg2rad(45.0)] * n_link)
-        # theta_ref = np.array([np.deg2rad(-10.0), np.deg2rad(45.0)])
-        xy_ee_ref = forward_kinematics(theta_ref, params["l"])[-1, :]
+        model = pin.buildModelFromUrdf(urdf_path)
+        data = model.createData()
+
+        q_init = np.array([0.0] * model.nq)
+        dq_init = np.array([0.0] * model.nv)
+        x0 = np.concatenate([q_init, dq_init])
+
+        # q_ref = pin.randomConfiguration(model)
+        q_ref = np.array([np.deg2rad(5.0)] * model.nq)
+        pin.forwardKinematics(model, data, q_ref)
+        xy_ee_ref = data.oMi[-1].translation
 
         yref = np.concatenate([xy_ee_ref, np.zeros(ocp.dims.nu)])
         yref_e = xy_ee_ref
 
-        print("theta_ref", theta_ref)
+        x_ref = np.concatenate([q_ref, np.zeros(model.nv)])
+
+        # for stage in range(ocp_solver.acados_ocp.solver_options.N_horizon + 1):
+        #     ocp_solver.set(stage, "x", x_ref[stage, :])
 
         for stage in range(ocp_solver.acados_ocp.solver_options.N_horizon):
             ocp_solver.cost_set(stage, "yref", yref)
@@ -70,7 +85,6 @@ class NLinkRobotMpc(Mpc):
             ocp_solver.acados_ocp.solver_options.N_horizon, "yref", yref_e
         )
 
-        x0 = np.zeros((ocp.dims.nx,))
         ocp_solver.solve_for_x0(x0, fail_on_nonzero_status=True)
 
         print("status", ocp_solver.get_status())
@@ -82,7 +96,14 @@ class NLinkRobotMpc(Mpc):
             ]
         )
 
-        print("x", x)
+        print("q_ref", q_ref)
+        print("x", x[:, : model.nq])
+
+        q_f = x[-1, : model.nq]
+        pin.forwardKinematics(model, data, q_f)
+        xy_ee_f = data.oMi[-1].translation
+        print("xy_ee_f", xy_ee_f)
+        print("xy_ee_ref", xy_ee_ref)
 
         exit(0)
 
@@ -322,21 +343,25 @@ def export_parametric_ocp(
     learnable_params: list[str] | None = None,
     N_horizon: int = 50,
     tf: float = 5.0,
-    n_link: int = 2,
+    urdf_path: str | None = None,
 ) -> AcadosOcp:
     ocp = AcadosOcp()
+
+    model = cpin.Model(pin.buildModelFromUrdf(urdf_path))
+    data = model.createData()
+
+    q = ca.SX.sym("q", model.nq, 1)
+    dq = ca.SX.sym("dq", model.nq, 1)
+    ddq = ca.SX.sym("ddq", model.nq, 1)
+    tau = ca.SX.sym("tau", model.nq, 1)
 
     ocp.solver_options.tf = tf
     ocp.solver_options.N_horizon = N_horizon
 
     ocp.model.name = name
 
-    ocp.model.x = ca.vertcat(
-        ca.SX.sym("theta", n_link),
-        ca.SX.sym("dtheta", n_link),
-    )
-
-    ocp.model.u = ca.SX.sym("tau", n_link)
+    ocp.model.x = ca.vertcat(q, dq)
+    ocp.model.u = tau
 
     ocp.dims.nx = ocp.model.x.shape[0]
     ocp.dims.nu = ocp.model.u.shape[0]
@@ -347,8 +372,7 @@ def export_parametric_ocp(
         nominal_param=nominal_param, learnable_param=learnable_params, ocp=ocp
     )
 
-    ocp.model.f_expl_expr = get_f_expl_expr(ocp=ocp)
-    # ocp.model.disc_dyn_expr = get_disc_dyn_expr(ocp=ocp)
+    ocp.model.f_expl_expr = ca.vertcat(dq, cpin.aba(model, data, q, dq, tau))
 
     # ocp.model.cost_expr_ext_cost_0 = get_cost_expr_nonlinear_ls_cost(ocp=ocp)
     # ocp.cost.cost_type_0 = "NONLINEAR_LS"
@@ -359,25 +383,24 @@ def export_parametric_ocp(
         ocp.model.cost_expr_ext_cost_e = get_terminal_cost_expr(ocp=ocp)
         ocp.cost.cost_type_e = "EXTERNAL"
     else:
-        xy = forward_kinematics(
-            theta=ocp.model.x[0 : ocp.dims.nx // 2],
-            l=find_param_in_p_or_p_global(["l"], ocp.model)["l"],
-        )
+        # xy = forward_kinematics(
+        #     theta=ocp.model.x[0 : ocp.dims.nx // 2],
+        #     l=find_param_in_p_or_p_global(["l"], ocp.model)["l"],
+        # )
 
-        xy_ee = ca.reshape(xy[-1, :], -1, 1)
-
-        theta_ref = np.array([np.deg2rad(10.0)] * n_link)
-
-        xy_ee_ref = forward_kinematics(theta=theta_ref, l=1.0)[-1, :]
+        # xy_ee = ca.reshape(xy[-1, :], -1, 1)
+        cpin.forwardKinematics(model, data, q, dq)
+        xy_ee = data.oMi[-1].translation
+        xy_ee_ref = np.zeros(xy_ee.shape[0])
 
         ocp.dims.ny = xy_ee.shape[0] + ocp.dims.nu
         ocp.dims.ny_e = xy_ee.shape[0]
         ocp.cost.cost_type = "NONLINEAR_LS"
-        ocp.cost.W = np.diag(np.array([10.0, 10.0] + [1.0] * ocp.dims.nu))
+        ocp.cost.W = np.diag(np.array([10.0, 10.0, 10.0] + [0.1] * ocp.dims.nu))
         ocp.model.cost_y_expr = ca.vertcat(xy_ee, ocp.model.u)
         ocp.cost.yref = np.concatenate([xy_ee_ref, np.zeros(ocp.dims.nu)])
         ocp.cost.cost_type_e = "NONLINEAR_LS"
-        ocp.cost.W_e = np.diag(np.array([10.0, 10.0]))
+        ocp.cost.W_e = np.diag(np.array([10.0, 10.0, 10.0]))
         ocp.model.cost_y_expr_e = xy_ee
         ocp.cost.yref_e = xy_ee_ref
 
