@@ -29,10 +29,24 @@ class NLinkRobotMpc(Mpc):
         export_directory: Path | None = None,
         export_directory_sensitivity: Path | None = None,
         throw_error_if_u0_is_outside_ocp_bounds: bool = True,
-        urdf_path: str | None = None,
+        urdf_path: Path | None = None,
+        mjcf_path: Path | None = None,
     ):
-        if urdf_path is None:
-            raise ValueError("urdf_path must be provided.")
+        model = None
+
+        if urdf_path is not None and mjcf_path is not None:
+            raise Exception("Please provide either a URDF or MJCF file, not both.")
+
+        if urdf_path is not None and mjcf_path is None:
+            model = pin.buildModelFromUrdf(urdf_path)
+        elif mjcf_path is not None and urdf_path is None:
+            model = pin.buildModelFromMJCF(mjcf_path)
+        else:
+            path = Path(__file__).parent / "reacher_10_links.xml"
+            print(f"No urdf or mjcf provided. Using default model : {path}")
+            model = pin.buildModelFromMJCF(
+                Path(__file__).parent / "reacher_10_links.xml"
+            )
 
         params = (
             {
@@ -49,16 +63,15 @@ class NLinkRobotMpc(Mpc):
         print("learnable_params: ", learnable_params)
 
         ocp = export_parametric_ocp(
+            pinocchio_model=model,
             nominal_param=params,
             learnable_params=learnable_params,
             N_horizon=N_horizon,
             tf=T_horizon,
-            urdf_path=urdf_path,
         )
 
         ocp_solver = AcadosOcpSolver(ocp)
 
-        model = pin.buildModelFromUrdf(urdf_path)
         data = model.createData()
 
         q_init = np.array([0.0] * model.nq)
@@ -66,7 +79,7 @@ class NLinkRobotMpc(Mpc):
         x0 = np.concatenate([q_init, dq_init])
 
         # q_ref = pin.randomConfiguration(model)
-        q_ref = np.array([np.deg2rad(5.0)] * model.nq)
+        q_ref = np.array([np.deg2rad(0.0)] * model.nq)
         pin.forwardKinematics(model, data, q_ref)
         xy_ee_ref = data.oMi[-1].translation
 
@@ -338,21 +351,20 @@ def get_terminal_cost_expr(ocp: AcadosOcp) -> ca.SX:
 
 
 def export_parametric_ocp(
+    pinocchio_model: pin.Model,
     nominal_param: dict[str, np.ndarray],
     name: str = "n_link_robot",
     learnable_params: list[str] | None = None,
     N_horizon: int = 50,
     tf: float = 5.0,
-    urdf_path: str | None = None,
 ) -> AcadosOcp:
     ocp = AcadosOcp()
 
-    model = cpin.Model(pin.buildModelFromUrdf(urdf_path))
+    model = cpin.Model(pinocchio_model)
     data = model.createData()
 
     q = ca.SX.sym("q", model.nq, 1)
     dq = ca.SX.sym("dq", model.nq, 1)
-    ddq = ca.SX.sym("ddq", model.nq, 1)
     tau = ca.SX.sym("tau", model.nq, 1)
 
     ocp.solver_options.tf = tf
