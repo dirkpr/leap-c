@@ -405,7 +405,7 @@ def set_discount_factor(
             f"expected AcadosOcpSolver or AcadosOcpBatchSolver, got {type(ocp_solver)}."
         )
 
-
+DO_RESOLVE = True
 def _solve_shared(
     solver: AcadosOcpBatchSolver,
     sensitivity_solver: AcadosOcpBatchSolver | None,
@@ -453,7 +453,7 @@ def _solve_shared(
             any_failed = True
 
     if (
-        any_failed and backup_fn is not None and iterate is not None
+        any_failed and backup_fn is not None and iterate is not None and DO_RESOLVE
     ):  # Reattempt with backup
         # TODO (Jasper): Currently we do a global resolve!
         #   - It is not clear how problematic this is, as the individual solver directly converges.

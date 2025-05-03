@@ -328,7 +328,8 @@ def export_parametric_ocp(
         ocp.cost.yref_e = ocp.cost.yref[:4]
         ocp.model.cost_y_expr_e = ocp.model.x
 
-        ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+        ocp.solver_options.hessian_approx = "EXACT"
+        # ocp.solver_options.nlp_solver_max_iter = 200
     else:
         raise ValueError(f"Cost type {cost_type} not supported.")
 
