@@ -42,15 +42,13 @@ class NLinkRobotMpc(Mpc):
         elif mjcf_path is not None and urdf_path is None:
             model = pin.buildModelFromMJCF(mjcf_path)
         else:
-            path = Path(__file__).parent / "reacher_10_links.xml"
+            path = Path(__file__).parent / "reacher.xml"
             print(f"No urdf or mjcf provided. Using default model : {path}")
-            model = pin.buildModelFromMJCF(
-                Path(__file__).parent / "reacher_10_links.xml"
-            )
+            model = pin.buildModelFromMJCF(path)
 
         params = (
             {
-                "xy_ee_ref": np.array([1.0, 1.0]),
+                "xy_ee_ref": np.array([0.1, 0.1]),
                 "q_sqrt_diag": np.array([10.0, 10.0]),
                 "r_sqrt_diag": np.array([0.05] * model.nq),
             }
@@ -86,11 +84,11 @@ def get_disc_dyn_expr(ocp: AcadosOcp, dt: float) -> ca.SX:
     # discrete dynamics via RK4
     ode = ca.Function("ode", [ocp.model.x, ocp.model.u], [ocp.model.f_expl_expr])
     k1 = ode(ocp.model.x, ocp.model.u)
-    k2 = ode(ocp.model.x + dt / 2 * k1, ocp.model.u)  # type:ignore
-    k3 = ode(ocp.model.x + dt / 2 * k2, ocp.model.u)  # type:ignore
-    k4 = ode(ocp.model.x + dt * k3, ocp.model.u)  # type:ignore
+    k2 = ode(ocp.model.x + dt / 2 * k1, ocp.model.u)
+    k3 = ode(ocp.model.x + dt / 2 * k2, ocp.model.u)
+    k4 = ode(ocp.model.x + dt * k3, ocp.model.u)
 
-    return ocp.model.x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)  # type:ignore
+    return ocp.model.x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
 def create_diag_matrix(
@@ -98,8 +96,7 @@ def create_diag_matrix(
 ) -> np.ndarray | ca.SX:
     if any(isinstance(i, ca.SX) for i in [v_diag]):
         return ca.diag(v_diag)
-    else:
-        return np.diag(v_diag)
+    return np.diag(v_diag)
 
 
 def export_parametric_ocp(
@@ -148,8 +145,6 @@ def export_parametric_ocp(
     q_diag = find_param_in_p_or_p_global(["q_sqrt_diag"], ocp.model)["q_sqrt_diag"] ** 2
     r_diag = find_param_in_p_or_p_global(["r_sqrt_diag"], ocp.model)["r_sqrt_diag"] ** 2
 
-    # ocp.dims.ny = xy_ee.shape[0] + ocp.dims.nu
-    # ocp.dims.ny_e = xy_ee.shape[0]
     ocp.cost.cost_type = "NONLINEAR_LS"
     ocp.cost.W = ca.diag(ca.vertcat(q_diag, r_diag))
     ocp.model.cost_y_expr = ca.vertcat(xy_ee, ocp.model.u)
