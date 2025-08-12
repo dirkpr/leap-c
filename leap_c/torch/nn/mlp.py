@@ -32,6 +32,14 @@ def string_to_weight_init(weight_init: str) -> Callable[[nn.Module], None]:
         raise ValueError(f"Weight initialization {weight_init} not recognized.")
 
 
+# TODO: Implement
+def nominal_output_init(module: nn.Module) -> None:
+    """Initializes the module with He/Kaiming initialization for weights and zeros for biases in the output layer.
+    This is useful for layers that output nominal values, such as the last layer of a network parameterizing a DiffMpc.
+    """
+    pass
+
+
 @dataclass(kw_only=True)
 class MlpConfig:
     hidden_dims: Sequence[int] = (256, 256, 256)
