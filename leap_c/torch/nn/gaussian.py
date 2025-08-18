@@ -4,6 +4,7 @@ from gymnasium import spaces
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.distributions import Beta
 
 
 class BoundedTransform(nn.Module):
@@ -134,3 +135,89 @@ class SquashedGaussian(nn.Module):
         stats = {"gaussian_unsquashed_std": std.prod(dim=-1).mean().item()}
 
         return y_scaled, log_prob, stats
+
+
+class BoundedBeta(nn.Module):
+    """Beta distribution rescaled to arbitrary bounds"""
+
+    def __init__(
+        self,
+        mode=None,
+        alpha=None,
+        beta=None,
+        lower_bound=0.0,
+        upper_bound=1.0,
+        c: float = 1.0,
+        log_c_min: float = -4.0,
+        log_c_max: float = 2.0,
+    ):
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self.log_c_min = log_c_min
+        self.log_c_max = log_c_max
+
+    def forward(
+        self,
+        mode: torch.Tensor,
+        log_c: torch.Tensor,
+        deterministic: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
+        """Sample from bounded Beta"""
+        # Sample from Beta(0, 1)
+
+        assert type(mode) is torch.Tensor, "Mode must be a torch.Tensor"
+
+        log_c = torch.clamp(log_c, self.log_c_min, self.log_c_max)
+        c = torch.exp(log_c)
+
+        lower_bound = self.lower_bound
+        upper_bound = self.upper_bound
+
+        alpha = torch.zeros_like(mode)
+        beta = torch.zeros_like(mode)
+
+        for i, (m, c_val) in enumerate(
+            zip(mode[0], c[0])
+        ):  # Use [0] to get the actual row
+            # Convert mode from bounded space to [0,1] space
+            if m < lower_bound[i] or m > upper_bound[i]:
+                raise ValueError(
+                    f"Mode {m} must be within bounds [{lower_bound[i]}, {upper_bound[i]}]"
+                )
+            normalized_mode = (m - lower_bound[i]) / (upper_bound[i] - lower_bound[i])
+
+            if normalized_mode == 0.0:
+                alpha[0, i], beta[0, i] = (
+                    1.0,
+                    c_val + 1.0,
+                )  # Use [0, i] for (1, n) tensor
+            elif normalized_mode == 1.0:
+                alpha[0, i], beta[0, i] = c_val + 1.0, 1.0
+            else:
+                total_concentration = c_val + 2
+                alpha_val = normalized_mode * (total_concentration - 2) + 1
+                beta_val = total_concentration - alpha_val
+                alpha[0, i] = max(0.1, alpha_val)
+                beta[0, i] = max(0.1, beta_val)
+
+        self.beta_dist = Beta(alpha, beta)
+
+        beta_samples = self.beta_dist.sample()
+
+        # Rescale to [lower_bound, upper_bound]
+        scaled = beta_samples * (self.upper_bound - self.lower_bound) + self.lower_bound
+
+        return scaled
+
+    def log_prob(self, x):
+        """Compute log probability"""
+        # Transform to [0, 1] space
+        normalized = (x - self.lower_bound) / (self.upper_bound - self.lower_bound)
+
+        # Beta log prob + scaling factor
+        log_prob_beta = self.beta_dist.log_prob(normalized)
+        scaling_factor = torch.log(
+            torch.tensor(1.0 / (self.upper_bound - self.lower_bound))
+        )
+
+        return log_prob_beta + scaling_factor
