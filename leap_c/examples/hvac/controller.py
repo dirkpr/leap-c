@@ -154,9 +154,7 @@ class HvacController(ParameterizedController):
                 param["q_dqh", stage] = 1.0  # weight on rate of change of heater power
                 param["q_ddqh", stage] = 1.0  # weight on acceleration of heater power
                 param["q_Ti", stage] = 0.001  # weight on acceleration of heater power
-                param["ref_Ti", stage] = convert_temperature(
-                    21.0, "celsius", "kelvin"
-                )  # weight on acceleration of heater power
+                param["ref_Ti", stage] = convert_temperature(21.0, "celsius", "kelvin")
             return param.cat.full().flatten()
 
         return self.param_manager.p_global_values.cat.full().flatten()  # type:ignore

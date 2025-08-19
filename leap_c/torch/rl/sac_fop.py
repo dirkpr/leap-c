@@ -67,6 +67,9 @@ class FopActor(nn.Module):
             mlp_cfg=mlp_cfg,
         )
         self.correction = correction
+
+        # TODO: Allow a different distribution. Use the controller.param_manager to build it. Use dist_cfg: DistributionConfig
+        # or should he distribution be part of the param_manager? As it is now, we only need the bounds coming from the param_manager.
         self.squashed_gaussian = SquashedGaussian(controller.param_space)  # type:ignore
 
     def forward(self, obs, ctx=None, deterministic=False) -> SacFopActorOutput:
