@@ -37,16 +37,14 @@ import gymnasium as gym
 import numpy as np
 import pandas as pd
 from gymnasium import spaces
-
-from i4b.disturbances import get_int_gains, get_solar_gains
+from i4b.disturbances import get_solar_gains
 from i4b.gym_interface import BUILDING_NAMES2CLASS
 from i4b.gym_interface.constant import OBSERVATION_SPACE_LIMIT
 from i4b.models.model_buildings import Building
 from i4b.models.model_hvac import Heatpump, Heatpump_AW, Heatpump_Vitocal  # noqa: F401
 from i4b.simulator import Model_simulator
-from leap_c.examples.hvac.dataset import DataConfig, HvacDataset, load_and_prepare_data
 
-_I4B_ROOT = Path(__file__).resolve().parents[3] / "external" / "i4b"
+from leap_c.examples.hvac.dataset import DataConfig, HvacDataset, load_and_prepare_data
 
 # Action bounds for T_HP supply temperature [degC], shared with the planner.
 _T_HP_ACT_LOW: float = OBSERVATION_SPACE_LIMIT["T_hp_sup"][0]
@@ -62,8 +60,8 @@ __all__ = [
     "Heatpump_Vitocal",
 ]
 
-# Internal gains profile path relative to i4b root
-_DEFAULT_GAINS_PROFILE = "i4b_data/profiles/InternalGains/ResidentialDetached.csv"
+# COFACTOR per-apartment electricity dataset (hourly, area-normalized W/m^2)
+_ELIMP_PARQUET = Path(__file__).parent / "assets" / "elimp_per_apartment.parquet"
 
 
 @dataclass(kw_only=True)
@@ -88,7 +86,6 @@ class I4bEnvConfig:
             in the "forecast" observation dict. Should match the MPC horizon for best results,
             but can be set to 0 to disable the "forecast" part of the observation.
         grid_signal: Grid support signal (OCP p[4]). Constant for now.
-        gains_profile: Path to internal gains CSV relative to i4b root.
     """
 
     building_params: dict
@@ -103,7 +100,6 @@ class I4bEnvConfig:
     T_set_upper: float = 26.0
     N_forecast: int = 24 * 4
     grid_signal: float = 1.0
-    gains_profile: str = _DEFAULT_GAINS_PROFILE
     apply_heating_logic: bool = False
     start_date: str | None = None
     """If True, apply the legacy RoomHeatEnv heating logic in step(): add T_offset when
@@ -226,19 +222,16 @@ class I4bEnv(gym.Env):
         )
 
         T_set_lower, T_set_upper = get_temperature_limits(idx)
+        elimp = pd.read_parquet(_ELIMP_PARQUET)
         int_gains = get_int_gains(
-            time=idx,
-            profile_path=str(_I4B_ROOT / cfg.gains_profile),
-            bldg_area=cfg.building_params["area_floor"],
+            idx, elimp, bldg_area=cfg.building_params["area_floor"], rng=self.np_random
         )
         Qdot_sol: pd.Series = get_solar_gains(weather=weather, bldg_params=cfg.building_params)
 
         self.dataset.add_columns(
             {
-                "Qdot_gains": (Qdot_sol + int_gains["Qdot_tot"]).to_numpy(dtype=np.float32),
-                "Qdot_int_oc": int_gains["Qdot_oc"].to_numpy(dtype=np.float32),
-                "Qdot_int_app": int_gains["Qdot_app"].to_numpy(dtype=np.float32),
-                "Qdot_int_tot": int_gains["Qdot_tot"].to_numpy(dtype=np.float32),
+                "Qdot_gains": (Qdot_sol + int_gains).to_numpy(dtype=np.float32),
+                "Qdot_int_tot": int_gains.to_numpy(dtype=np.float32),
                 "Qdot_sol": Qdot_sol.to_numpy(dtype=np.float32),
                 "T_set_lower": T_set_lower.astype(np.float32),
                 "T_set_upper": T_set_upper.astype(np.float32),
@@ -442,6 +435,31 @@ class I4bEnv(gym.Env):
         self.state = self._build_obs(state_dict)
         return self._copy_obs(self.state), {}
 
+    def plot_dataset(self, days: int = 7, start: int = 0):
+        """Return a plotly Figure of ``days`` days of every signal in ``self.dataset``.
+
+        Stacked, x-shared subplots (one per numeric column) over the window
+        ``[start, start + days * steps_per_day)``, for quick visual inspection. The
+        caller decides what to do with it, e.g. ``fig.show()`` or
+        ``fig.write_html(path)``.
+        """
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        steps = days * 24 * int(3600 / self.cfg.delta_t)
+        df = self.dataset.data.iloc[start : start + steps]
+        skip = {"time", "date"}
+        cols = [c for c in df.columns if c not in skip and pd.api.types.is_numeric_dtype(df[c])]
+        fig = make_subplots(rows=len(cols), cols=1, shared_xaxes=True, subplot_titles=cols)
+        for row, c in enumerate(cols, start=1):
+            fig.add_trace(go.Scatter(x=df.index, y=df[c], name=c, mode="lines"), row=row, col=1)
+        fig.update_layout(
+            height=160 * len(cols),
+            showlegend=False,
+            title=f"i4b dataset — {days} day(s) from index {start}",
+        )
+        return fig
+
 
 def get_temperature_limits(
     time: pd.DatetimeIndex,
@@ -458,3 +476,42 @@ def get_temperature_limits(
     lb = np.where(night_idx, lb_night, lb_day)
     ub = np.where(night_idx, ub_night, ub_day)
     return lb, ub
+
+
+def get_int_gains(
+    time: pd.DatetimeIndex,
+    elimp: pd.DataFrame,
+    bldg_area: float,
+    eta: float = 0.95,
+    rng=None,
+) -> pd.Series:
+    """Draw a random COFACTOR apartment-electricity channel as indoor heat gain [W].
+
+    ``elimp`` is the hourly, area-normalized apartment electricity-import frame
+    [W/m^2] (one column per apartment, tz-aware). A random column is picked and
+    clock-re-based onto ``time``: the channel is shifted by a whole number of days
+    so its wall-clock hour-of-day is preserved while the absolute year/season is
+    ignored (COFACTOR guidance: condition the gain on local clock hour only, since
+    leap-c uses different weather). The hourly series is then linearly interpolated
+    onto ``time`` and scaled to Watts by floor area and the electricity->heat
+    efficiency ``eta``.
+
+    Returns a ``pd.Series`` of ``Qdot_int`` [W] indexed by ``time``.
+    """
+    rng = np.random.default_rng(rng)
+    col = str(rng.choice(elimp.columns.to_numpy()))
+    hourly = elimp[col].copy()
+
+    # Work in naive wall-clock; a whole-day shift keeps hour-of-day, drops year/season.
+    hourly.index = hourly.index.tz_localize(None)
+    target = time.tz_localize(None) if time.tz is not None else time
+    shift_days = (target[0].normalize() - hourly.index[0].normalize()).days
+    hourly.index = hourly.index + pd.Timedelta(days=shift_days)
+
+    signal = (
+        hourly.reindex(hourly.index.union(target))
+        .interpolate("time", limit_direction="both")
+        .reindex(target)
+    )
+    signal.index = time
+    return (signal * float(bldg_area) * float(eta)).rename("Qdot_int")

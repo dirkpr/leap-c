@@ -71,6 +71,21 @@ pip install -e ".[dev]"
 
 See the [pyproject.toml](https://github.com/leap-c/leap-c/blob/main/pyproject.toml) for more information on package configurations.
 
+### Using uv (alternative)
+
+If you use [uv](https://docs.astral.sh/uv/), a single `uv sync` from the repository
+root sets up the environment, including the `i4b` example (installed editable from the
+`external/i4b` submodule together with its extra runtime dependencies):
+
+```bash
+git submodule update --init --recursive   # uv cannot initialize submodules itself
+uv sync
+```
+
+> **Note:** `external/i4b` must be checked out before running `uv sync`, otherwise the
+> sync fails because the `i4b` workspace member cannot be built. If you do not need the
+> i4b example, run `uv sync --no-group i4b`.
+
 ### Troubleshooting
 
 In the [troubleshooting tab](https://leap-c.github.io/leap-c/troubleshooting.html),
