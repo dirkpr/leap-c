@@ -10,7 +10,7 @@ runs:
   using: 'composite'
   steps:
     - name: Download acados artifacts (build, lib, include) into acados repository
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: ${{github.workspace}}/leap_c/external/acados
         repository: acados/acados
@@ -37,7 +37,7 @@ runs:
         echo "LD_LIBRARY_PATH=${{github.workspace}}/leap_c/external/acados/lib" >> $GITHUB_ENV
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v6
+      uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
         python-version: ${{ inputs.python-version }}
