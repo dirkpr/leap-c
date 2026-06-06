@@ -63,6 +63,15 @@ __all__ = [
 # COFACTOR per-apartment electricity dataset (hourly, area-normalized W/m^2)
 _ELIMP_PARQUET = Path(__file__).parent / "assets" / "elimp_per_apartment.parquet"
 
+# Scaling factor to convert the COFACTOR electricity proxy to internal heat gains,
+# set so the peak is in the magnitude of the DIN EN 16798-1 ResidentialFlat profile
+# for the i4c archetype
+# Source: external/i4b/i4b_data/profiles/InternalGains/ResidentialFlat.csv
+_DIN_INT_GAIN_PEAK_W_PER_M2 = 10.0
+
+# Allowed +/-10% random deviation applied to the scaled internal-gain peak.
+_INT_GAIN_PEAK_JITTER = 0.10
+
 
 @dataclass(kw_only=True)
 class I4bEnvConfig:
@@ -86,6 +95,9 @@ class I4bEnvConfig:
             in the "forecast" observation dict. Should match the MPC horizon for best results,
             but can be set to 0 to disable the "forecast" part of the observation.
         grid_signal: Grid support signal (OCP p[4]). Constant for now.
+        seed: If set, seeds the random COFACTOR apartment draw in
+            _augment_dataset so the internal-gain disturbance is reproducible.
+            None draws from entropy.
     """
 
     building_params: dict
@@ -100,6 +112,7 @@ class I4bEnvConfig:
     T_set_upper: float = 26.0
     N_forecast: int = 24 * 4
     grid_signal: float = 1.0
+    seed: int | None = None
     apply_heating_logic: bool = False
     start_date: str | None = None
     """If True, apply the legacy RoomHeatEnv heating logic in step(): add T_offset when
@@ -223,9 +236,8 @@ class I4bEnv(gym.Env):
 
         T_set_lower, T_set_upper = get_temperature_limits(idx)
         elimp = pd.read_parquet(_ELIMP_PARQUET)
-        int_gains = get_int_gains(
-            idx, elimp, bldg_area=cfg.building_params["area_floor"], rng=self.np_random
-        )
+        rng = np.random.default_rng(cfg.seed) if cfg.seed is not None else self.np_random
+        int_gains = get_int_gains(idx, elimp, bldg_area=cfg.building_params["area_floor"], rng=rng)
         Qdot_sol: pd.Series = get_solar_gains(weather=weather, bldg_params=cfg.building_params)
 
         self.dataset.add_columns(
@@ -482,7 +494,8 @@ def get_int_gains(
     time: pd.DatetimeIndex,
     elimp: pd.DataFrame,
     bldg_area: float,
-    eta: float = 0.95,
+    peak_w_per_m2: float = _DIN_INT_GAIN_PEAK_W_PER_M2,
+    jitter: float = _INT_GAIN_PEAK_JITTER,
     rng=None,
 ) -> pd.Series:
     """Draw a random COFACTOR apartment-electricity channel as indoor heat gain [W].
@@ -493,8 +506,12 @@ def get_int_gains(
     so its wall-clock hour-of-day is preserved while the absolute year/season is
     ignored (COFACTOR guidance: condition the gain on local clock hour only, since
     leap-c uses different weather). The hourly series is then linearly interpolated
-    onto ``time`` and scaled to Watts by floor area and the electricity->heat
-    efficiency ``eta``.
+    onto ``time``.
+
+    The raw COFACTOR proxy peaks far above realistic internal gains, so its shape is
+    kept but its peak magnitude is max-scaled to the DIN EN 16798-1 peak,
+    ``peak_w_per_m2 * bldg_area`` [W], with a +/-``jitter`` fractional random
+    deviation drawn from ``rng``.
 
     Returns a ``pd.Series`` of ``Qdot_int`` [W] indexed by ``time``.
     """
@@ -514,4 +531,11 @@ def get_int_gains(
         .reindex(target)
     )
     signal.index = time
-    return (signal * float(bldg_area) * float(eta)).rename("Qdot_int")
+
+    # Max-scale the COFACTOR proxy so its peak matches the DIN EN 16798-1 peak
+    # (peak_w_per_m2 * bldg_area), with a +/-`jitter` random deviation from rng.
+    peak_factor = 1.0 + rng.uniform(-jitter, jitter)
+    target_peak = peak_w_per_m2 * float(bldg_area) * peak_factor
+    denom = float(signal.max())
+    scale = target_peak / denom if denom > 0 else 0.0
+    return (signal * scale).rename("Qdot_int")
