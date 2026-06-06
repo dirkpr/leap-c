@@ -201,9 +201,9 @@ def export_parametric_ocp(
     ocp.model.disc_dyn_expr = Ad @ x + Bd @ u + Ed @ d
 
     # ── Stage cost: electrical energy ─────────────────────────────────────────
-    COP = _cop_casadi(hp_model, T_hp, T_amb)
     Qth = hp_model.mdot_HP * C_WATER_SPEC * (T_hp - T_hp_ret) / 1000  # [kW]
-    stage_cost = Qth / (COP * 100) * grid_signal
+    # NOTE (dirk): The grid_signal is an artifact of the i4b formulation. Always 1.0 for now.
+    stage_cost = Qth / (_cop_casadi(hp_model, T_hp, T_amb) * 100) * grid_signal
 
     ocp.cost.cost_type = "EXTERNAL"
     ocp.cost.cost_type_e = "EXTERNAL"
