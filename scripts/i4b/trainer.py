@@ -1,27 +1,35 @@
-"""Custom SAC-FOP trainer for the i4b environment with per-episode validation logging."""
+"""Custom SAC-FOP / SAC-ZOP trainers for i4b with per-episode validation logging.
+
+The per-episode validation logging is algorithm-agnostic (both SAC-FOP and
+SAC-ZOP drive the same ``HierachicalMPCActor`` and predict the same per-stage
+``Qdot_gains``), so it lives in ``I4bValLoggingMixin`` and is mixed into both
+``I4bSacFopTrainer`` and ``I4bSacZopTrainer``. This mirrors the cartpole
+convention (``CartPoleValChannelsMixin`` in
+``scripts/cartpole/sac_cartpole_mixin.py``).
+"""
 
 from __future__ import annotations
-
-from pathlib import Path
-from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from gymnasium import Env
 
-from leap_c.controller import CtxType, ParameterizedController
+from leap_c.controller import CtxType
 from leap_c.torch.rl.mpc_actor import (
     StochasticMPCActorOutput,
 )
-from leap_c.torch.rl.sac_fop import SacFopTrainer, SacFopTrainerConfig
+from leap_c.torch.rl.sac_fop import SacFopTrainer
+from leap_c.torch.rl.sac_zop import SacZopTrainer
 
 
-class I4bSacFopTrainer(SacFopTrainer):
-    """SacFopTrainer with per-episode validation hooks for the i4b environment.
+class I4bValLoggingMixin:
+    """Per-episode validation logging for the i4b environment.
 
-    Adds three capabilities on top of SacFopTrainer:
+    Meant to be mixed in *before* a concrete SAC trainer, e.g.
+    ``class I4bSacFopTrainer(I4bValLoggingMixin, SacFopTrainer): ...``.
+
+    Adds three capabilities on top of the concrete trainer:
 
     1. ``act()`` stashes ``pi_output.param`` so the per-step callback can access
        the predicted ``Qdot_gains`` without requiring changes to the trainer
@@ -31,37 +39,13 @@ class I4bSacFopTrainer(SacFopTrainer):
        predicted Qdot_gains, temperature, setpoints, solver status) and detects
        episode boundaries by watching the step counter reset to 1.
 
-    3. ``validate()`` override calls ``_on_episode_end()`` once for each
-       completed episode (including the last one, which the step-boundary
-       detector cannot see) and then ``_on_validation_end()`` once after all
-       episodes.
-    """
+    3. ``validate()`` calls ``_on_episode_end()`` once for each completed
+       episode (including the last one, which the step-boundary detector cannot
+       see) and then ``_on_validation_end()`` once after all episodes.
 
-    def __init__(
-        self,
-        cfg: SacFopTrainerConfig,
-        val_env: Env | None,
-        output_path: str | Path,
-        device: int | str | torch.device,
-        dtype: torch.dtype,
-        train_env: Env,
-        controller: ParameterizedController[CtxType],
-        extractor_cls=None,
-    ) -> None:
-        super().__init__(
-            cfg=cfg,
-            val_env=val_env,
-            output_path=output_path,
-            device=device,
-            dtype=dtype,
-            train_env=train_env,
-            controller=controller,
-            extractor_cls=extractor_cls,
-        )
-        # Set by act(); read by the step callback.
-        self._last_act_param: np.ndarray | None = None
-        # Filled by _make_val_step_callback, flushed by validate().
-        self._pending_episode_flush: Any | None = None  # callable | None
+    State (``_last_act_param``, ``_pending_episode_flush``) is initialised
+    lazily by the methods below, so no ``__init__`` override is needed.
+    """
 
     # ------------------------------------------------------------------
     # act() — stash predicted param for the callback
@@ -102,8 +86,9 @@ class I4bSacFopTrainer(SacFopTrainer):
                 _flush()
             prev_step_ref[0] = step
 
+            last_act_param = getattr(self, "_last_act_param", None)
             Qdot_gains_pred = (
-                float(self._last_act_param[0]) if self._last_act_param is not None else float("nan")
+                float(last_act_param[0]) if last_act_param is not None else float("nan")
             )
             Qdot_gains_true = float(obs["disturbances"]["Qdot_gains"].flat[0])
             T_set_lower = float(obs["setpoints"]["T_set_lower"].flat[0])
@@ -209,6 +194,14 @@ class I4bSacFopTrainer(SacFopTrainer):
             self._pending_episode_flush()
         self._on_validation_end()
         return score
+
+
+class I4bSacFopTrainer(I4bValLoggingMixin, SacFopTrainer):
+    """SacFopTrainer with i4b per-episode validation logging."""
+
+
+class I4bSacZopTrainer(I4bValLoggingMixin, SacZopTrainer):
+    """SacZopTrainer with i4b per-episode validation logging."""
 
 
 # ---------------------------------------------------------------------------
