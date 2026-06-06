@@ -123,6 +123,15 @@ default-groups = ["i4b", "acados"]
 # (`git submodule update --init`).
 members = ["external/i4b"]
 
+[[tool.uv.index]]
+# CPU-only PyTorch index. `explicit = true` means uv consults it only for packages
+# that name it in [tool.uv.sources] (i.e. torch below), so nothing else is affected.
+# This keeps the lock from pulling the multi-GB CUDA torch stack, which is pointless
+# on CPU-only CI runners.
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.sources]
 # Satisfy the `i4b` requirement from the workspace member declared above.
 i4b = { workspace = true }
@@ -130,6 +139,8 @@ i4b = { workspace = true }
 # workspace member like i4b; reference it as an editable path source instead.
 # Requires the external/acados submodule to be checked out (`git submodule update --init`).
 acados_template = { path = "external/acados/interfaces/acados_template", editable = true }
+# Resolve torch from the CPU index declared above instead of PyPI's CUDA wheels.
+torch = { index = "pytorch-cpu" }
 
 [tool.pytest.ini_options]
 testpaths = "tests"
