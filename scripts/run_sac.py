@@ -37,7 +37,12 @@ def create_cfg(
     # ---- Configuration ----
     cfg = RunSacConfig()
     cfg.env = env
-    cfg.extractor = "hvac" if env.startswith("hvac") else "identity"
+    if env.startswith("hvac"):
+        cfg.extractor = "hvac"
+    elif env.startswith("i4b"):
+        cfg.extractor = "i4b"
+    else:
+        cfg.extractor = "identity"
 
     # ---- Section: cfg.trainer ----
     cfg.trainer.seed = seed

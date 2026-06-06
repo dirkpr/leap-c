@@ -22,6 +22,8 @@ jobs:
             script: "sac,sac_zop,sac_fop,controller"
           - env: "hvac"
             script: "sac,sac_zop,sac_fop,controller"
+          - env: "i4b"
+            script: "sac,sac_zop,sac_fop,controller"
 
     steps:
 

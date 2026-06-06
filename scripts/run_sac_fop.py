@@ -48,7 +48,12 @@ def create_cfg(
     cfg = RunSacFopConfig()
     cfg.env = env
     cfg.controller = controller if controller is not None else env
-    cfg.extractor = "identity" if env != "hvac" else "hvac"
+    if env == "hvac":
+        cfg.extractor = "hvac"
+    elif env.startswith("i4b"):
+        cfg.extractor = "i4b"
+    else:
+        cfg.extractor = "identity"
 
     # Validate variant
     if variant not in ["fop", "fopc", "foa"]:

@@ -237,6 +237,11 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
                 self.param_manager.learnable_parameters_default.cat.full().flatten()
             ).to(device)
             param = default_flat.unsqueeze(0).expand(batch_size, -1)
+        elif param is not None and param.ndim == 1:
+            # Normalize an unbatched p_global to the leading
+            # batch dimension the acados batch solver requires.
+            # NOTE (dirk): Check if still needed after param_manager refactor.
+            param = param.unsqueeze(0).expand(batch_size, -1)
 
         diff_mpc_ctx, _, x, u, value = self.diff_mpc(x0, action, param, p_stagewise, ctx=ctx)
 
