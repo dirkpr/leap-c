@@ -729,11 +729,11 @@ def get_open_meteo_data(
     https://open-meteo.com/en/docs/historical-forecast-api
     """
     from openmeteo_requests import Client
-    from requests_cache import CachedSession
     from retry_requests import retry
 
-    cache_session = CachedSession(".cache", expire_after=3600)
-    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
+    # A plain retry-enabled requests session; the downloaded frame is written to
+    # CSV by the caller, so no on-disk HTTP cache is needed.
+    retry_session = retry(retries=5, backoff_factor=0.2)
     openmeteo = Client(session=retry_session)
 
     # Make sure all required weather variables are listed here
