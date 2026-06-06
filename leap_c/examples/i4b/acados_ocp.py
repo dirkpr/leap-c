@@ -28,28 +28,34 @@ import gymnasium as gym
 import numpy as np
 import scipy.linalg
 from acados_template import ACADOS_INFTY, AcadosOcp
-
 from i4b.constants import C_WATER_SPEC
 from i4b.models.model_buildings import Building
 from i4b.models.model_hvac import Heatpump, Heatpump_AW, Heatpump_Vitocal
+
 from leap_c.ocp.acados.parameters import AcadosParameter, AcadosParameterManager
 
 
 def make_i4b_params(N_horizon: int) -> tuple[AcadosParameter, ...]:
-    """Return the four stage-wise non-learnable parameters for the i4b OCP.
+    """Return the five stage-wise parameters for the i4b OCP.
 
-    All parameters use ``interface="non-learnable"``: they can be updated at
-    runtime via ``solver.set(k, "p", values)`` but are not exposed to a
-    learning interface.  Default values are representative winter conditions.
+    Four parameters use ``interface="non-learnable"`` (``T_set_lower``,
+    ``T_set_upper``, ``grid_signal``, ``T_amb``): they are set at runtime from
+    the observation/forecast via ``ocp.model.p`` and are not exposed to a
+    learning interface.  ``Qdot_gains`` uses ``interface="learnable"`` with a
+    per-stage variation (``end_stages=range(N_horizon + 1)``): it becomes the
+    learnable ``p_global`` vector predicted by the policy -- one value per
+    stage, ``N_horizon + 1`` in total.  Default values are representative
+    winter conditions.
 
-    Parameter order (= flat ``p`` vector per stage):
-        0  T_amb        Ambient temperature               [degC]   default  5.0
-        1  Qdot_gains   Total heat gains (solar+internal) [W]      default  500.0
-        2  T_set_lower  Lower comfort setpoint            [degC]   default  20.0
-        3  grid_signal  Grid support signal               [-]      default  1.0
+    Parameter order (= return order):
+        0  T_set_lower  Lower comfort setpoint            [degC]  non-learnable  default 20.0
+        1  T_set_upper  Upper comfort setpoint            [degC]  non-learnable  default 26.0
+        2  grid_signal  Grid support signal               [-]     non-learnable  default 1.0
+        3  T_amb        Ambient temperature               [degC]  non-learnable  default 5.0
+        4  Qdot_gains   Total heat gains (solar+internal) [W]     learnable      default 0.0
 
     Returns:
-        Tuple of four AcadosParameter objects (preserving the order above).
+        Tuple of five AcadosParameter objects (preserving the order above).
     """
     return (
         AcadosParameter(

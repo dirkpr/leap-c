@@ -4,10 +4,10 @@ from typing import Any
 
 import numpy as np
 import torch
-
 from i4b.gym_interface import BUILDING_NAMES2CLASS
 from i4b.models.model_buildings import Building
 from i4b.models.model_hvac import Heatpump, Heatpump_AW
+
 from leap_c.examples.i4b.acados_ocp import export_parametric_ocp, make_i4b_params
 from leap_c.examples.i4b.env import _T_HP_ACT_HIGH, _T_HP_ACT_LOW
 from leap_c.ocp.acados.parameters import AcadosParameter, AcadosParameterManager
@@ -194,7 +194,9 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
                 ``obs["disturbances"]["Qdot_gains"]`` - shape (batch_size, 1),
                 ``obs["setpoints"]["T_set_upper"]`` - shape (batch_size, 1).
             action: Warm-start action (optional).
-            param: Learnable parameters (unused; all params are non-learnable).
+            param: Learnable parameters -- the per-stage ``Qdot_gains`` predicted
+                by the policy, passed through to the solver as ``p_global``.
+                Defaults to ``learnable_parameters_default`` when None.
             ctx: Previous solver context for warm-starting.
 
         Returns:
