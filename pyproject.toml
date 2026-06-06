@@ -90,6 +90,17 @@ i4b = [
   "pandas==2.3.0",      # match the pin used by the [hvac] extra
   "matplotlib==3.10.5", # match the pin used by the [test] extra
   "requests>=2.32",
+  "pyarrow==24.0.0",    # match the [hvac] pin; parquet engine for the COFACTOR elimp dataset
+  "plotly==6.8.0",      # match the [hvac] pin; used by I4bEnv.plot_dataset
+]
+# Installed by default via [tool.uv] default-groups (see below), so a plain
+# `uv sync` installs the acados Python interface. `acados_template` is sourced
+# editable from the external/acados submodule (see [tool.uv.sources]); it ships only
+# a setup.py (no pyproject.toml) so it is a path source, not a workspace member.
+# NOTE: this installs only the Python package — `import acados_template` works, but
+# running a solver still requires building the acados C library (see installation.md).
+acados = [
+  "acados_template",
 ]
 
 [tool.setuptools]
@@ -101,8 +112,8 @@ Repository = "https://github.com/leap-c/leap-c"
 
 [tool.uv]
 # Make plain `uv sync` (no flags) install the i4b group so the i4b example works
-# out of the box. 
-default-groups = ["i4b"]
+# out of the box, and the acados group so the acados Python interface is importable.
+default-groups = ["i4b", "acados"]
 
 [tool.uv.workspace]
 # external/i4b is a git submodule that lives inside this project tree, so uv
@@ -115,6 +126,10 @@ members = ["external/i4b"]
 [tool.uv.sources]
 # Satisfy the `i4b` requirement from the workspace member declared above.
 i4b = { workspace = true }
+# acados_template ships only a setup.py (no pyproject.toml), so it cannot be a
+# workspace member like i4b; reference it as an editable path source instead.
+# Requires the external/acados submodule to be checked out (`git submodule update --init`).
+acados_template = { path = "external/acados/interfaces/acados_template", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = "tests"

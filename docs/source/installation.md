@@ -75,16 +75,23 @@ See the [pyproject.toml](https://github.com/leap-c/leap-c/blob/main/pyproject.to
 
 If you use [uv](https://docs.astral.sh/uv/), a single `uv sync` from the repository
 root sets up the environment, including the `i4b` example (installed editable from the
-`external/i4b` submodule together with its extra runtime dependencies):
+`external/i4b` submodule together with its extra runtime dependencies) and the acados
+Python interface (`acados_template`, installed editable from the `external/acados`
+submodule):
 
 ```bash
 git submodule update --init --recursive   # uv cannot initialize submodules itself
 uv sync
 ```
 
-> **Note:** `external/i4b` must be checked out before running `uv sync`, otherwise the
-> sync fails because the `i4b` workspace member cannot be built. If you do not need the
-> i4b example, run `uv sync --no-group i4b`.
+> **Note:** `external/i4b` and `external/acados` must be checked out before running
+> `uv sync`, otherwise the sync fails because the `i4b` workspace member and the
+> `acados_template` path source cannot be built. To skip either, run
+> `uv sync --no-group i4b` and/or `uv sync --no-group acados`.
+
+> **Note:** `uv sync` only installs the *Python* package `acados_template`, which is
+> enough for `import acados_template`. Running a solver additionally requires building the
+> acados **C library** as described in the [acados](#acados) section above.
 
 ### Troubleshooting
 
