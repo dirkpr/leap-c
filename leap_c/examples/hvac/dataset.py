@@ -121,13 +121,14 @@ class HvacDataset:
             "direct_normal_irradiance",
             "diffuse_radiation",
             "price",
-            "quarter_hour",
         ]:
             if _col in self.data.columns:
                 self._arrays[_col] = self.data[_col].to_numpy(dtype=np.float32)
         # Integer time columns – keep as int64 for compatibility with obs spaces.
-        self._arrays["day_of_year"] = (self.data.index.dayofyear - 1).to_numpy()
-        self._arrays["day_of_week"] = self.data.index.dayofweek.to_numpy()
+        if "quarter_hour" in self.data.columns:
+            self._arrays["quarter_hour"] = self.data["quarter_hour"].to_numpy(dtype=np.int64)
+        self._arrays["day_of_year"] = (self.data.index.dayofyear - 1).to_numpy(dtype=np.int64)
+        self._arrays["day_of_week"] = self.data.index.dayofweek.to_numpy(dtype=np.int64)
 
         # Continual mode: track current position in dataset
         self._continual_idx: int = 0

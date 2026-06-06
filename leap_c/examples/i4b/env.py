@@ -22,12 +22,17 @@ Observation space (spaces.Dict):
     "state":          Box(nx,)   – building thermal states [degC]
     "disturbances":   Dict
         "T_amb":      Box(1,)    – current ambient temperature [degC]
-        "Qdot_gains": Box(1,)    – current total heat gains [W]
     "setpoints":      Dict
         "T_set_lower": Box(1,)   – lower comfort bound [degC]
         "T_set_upper": Box(1,)   – upper comfort bound [degC]
     "forecast":       Dict       – only if weather_forecast_steps is non-empty
         "T_amb":      Box(nf,)   – ambient temperature forecast [degC]
+
+The true total heat gains ``Qdot_gains`` are deliberately *not* part of the
+observation: they are the per-stage quantity the policy must learn to predict, so
+exposing them would let the feature extractor leak the answer into the parameters.
+The true value is published in the ``step()`` ``info`` dict instead (out-of-band,
+never seen by the actor) for diagnostics.
 """
 
 from dataclasses import dataclass
@@ -259,23 +264,19 @@ class I4bEnv(gym.Env):
         )
         T_amb_lo = np.float32(OBSERVATION_SPACE_LIMIT["T_amb"][0])
         T_amb_hi = np.float32(OBSERVATION_SPACE_LIMIT["T_amb"][1])
-        Qdot_lo = np.float32(OBSERVATION_SPACE_LIMIT["Qdot_gains"][0])
-        Qdot_hi = np.float32(OBSERVATION_SPACE_LIMIT["Qdot_gains"][1])
 
         obs_spaces: dict = {
             "state": spaces.Box(low=state_lows, high=state_highs, dtype=np.float32),
             "disturbances": spaces.Dict(
                 {
                     "T_amb": spaces.Box(low=T_amb_lo, high=T_amb_hi, shape=(1,), dtype=np.float32),
-                    "Qdot_gains": spaces.Box(
-                        low=Qdot_lo, high=Qdot_hi, shape=(1,), dtype=np.float32
-                    ),
                 }
             ),
             "setpoints": spaces.Dict(
                 {
+                    # low 12.0 = night setback lower bound from get_temperature_limits.
                     "T_set_lower": spaces.Box(
-                        low=np.float32(15.0), high=np.float32(30.0), shape=(1,), dtype=np.float32
+                        low=np.float32(12.0), high=np.float32(30.0), shape=(1,), dtype=np.float32
                     ),
                     "T_set_upper": spaces.Box(
                         low=np.float32(20.0), high=np.float32(35.0), shape=(1,), dtype=np.float32
@@ -288,7 +289,7 @@ class I4bEnv(gym.Env):
             {
                 "T_amb": spaces.Box(low=T_amb_lo, high=T_amb_hi, shape=(nf,), dtype=np.float32),
                 "T_set_lower": spaces.Box(
-                    low=np.float32(15.0), high=np.float32(30.0), shape=(nf,), dtype=np.float32
+                    low=np.float32(12.0), high=np.float32(30.0), shape=(nf,), dtype=np.float32
                 ),
                 "T_set_upper": spaces.Box(
                     low=np.float32(20.0), high=np.float32(35.0), shape=(nf,), dtype=np.float32
@@ -314,7 +315,6 @@ class I4bEnv(gym.Env):
             "state": np.array([state_dict[k] for k in self.state_keys], dtype=np.float32),
             "disturbances": {
                 "T_amb": gcv("temperature_2m", self._idx),
-                "Qdot_gains": gcv("Qdot_gains", self._idx),
             },
             "setpoints": {
                 "T_set_lower": gcv("T_set_lower", self._idx),
@@ -399,6 +399,9 @@ class I4bEnv(gym.Env):
             "dev_max": float(costs["dev_neg_max"]),
             "T_room": float(next_state["T_room"]),
             "T_hp_sup": T_hp_sup,
+            # True heat gains, published out-of-band (not in the observation, so the
+            # actor can't see them) for the predicted-vs-true Qdot_gains diagnostic.
+            "Qdot_gains": pk_dict["Qdot_gains"],
             "t": self._idx,
         }
 

@@ -98,7 +98,6 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
     (a ``spaces.Dict``):
         obs["state"]                       - building thermal states, shape (B, nx)
         obs["disturbances"]["T_amb"]       - ambient temperature, shape (B, 1)
-        obs["disturbances"]["Qdot_gains"]  - heat gains, shape (B, 1)
         obs["setpoints"]["T_set_upper"]    - upper comfort bound, shape (B, 1)
 
     The planner extracts the building state and current disturbances from the
@@ -191,7 +190,6 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
             obs: Dict observation as produced by ``I4bEnv``.  Must contain:
                 ``obs["state"]`` - shape (batch_size, nx),
                 ``obs["disturbances"]["T_amb"]`` - shape (batch_size, 1),
-                ``obs["disturbances"]["Qdot_gains"]`` - shape (batch_size, 1),
                 ``obs["setpoints"]["T_set_upper"]`` - shape (batch_size, 1).
             action: Warm-start action (optional).
             param: Learnable parameters -- the per-stage ``Qdot_gains`` predicted
@@ -211,7 +209,6 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
         N = self.cfg.N_horizon
 
         T_amb_now = obs["disturbances"]["T_amb"].detach().cpu().numpy()  # (B, 1)
-        Qdot_gains_now = obs["disturbances"]["Qdot_gains"].detach().cpu().numpy()  # (B, 1)
         T_set_lower_now = obs["setpoints"]["T_set_lower"].detach().cpu().numpy()  # (B, 1)
         T_set_upper_now = obs["setpoints"]["T_set_upper"].detach().cpu().numpy()  # (B, 1)
 
@@ -222,18 +219,14 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
         T_amb_staged = _fc_to_staged(fc.get("T_amb"), T_amb_now, batch_size, N)
         T_set_lower_staged = _fc_to_staged(fc.get("T_set_lower"), T_set_lower_now, batch_size, N)
         T_set_upper_staged = _fc_to_staged(fc.get("T_set_upper"), T_set_upper_now, batch_size, N)
-        Qdot_gains_staged = np.broadcast_to(
-            Qdot_gains_now[:, np.newaxis, :], (batch_size, N + 1, 1)
-        ).copy()
 
+        # Qdot_gains is the learnable parameter the policy predicts (passed via
+        # ``param`` -> p_global); it is intentionally not read from the observation.
         overwrites = {
             "T_amb": T_amb_staged,
             "T_set_lower": T_set_lower_staged,
             "T_set_upper": T_set_upper_staged,
         }
-
-        if self.param_manager.has_parameter("Qdot_gains", interface="non-learnable"):
-            overwrites["Qdot_gains"] = Qdot_gains_staged
 
         p_stagewise = self.param_manager.combine_non_learnable_parameter_values(**overwrites)
 

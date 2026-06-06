@@ -267,7 +267,7 @@ def default_channels(
         channels.append(
             Channel(
                 name="Qdot_gains",
-                scalar=lambda obs, info, a, ctx, r: _obs(obs, "disturbances", "Qdot_gains"),
+                scalar=lambda obs, info, a, ctx, r: info.get("Qdot_gains", float("nan")),
                 ylabel="Qdot_gains [W]",
             )
         )

@@ -90,7 +90,7 @@ class I4bValLoggingMixin:
             Qdot_gains_pred = (
                 float(last_act_param[0]) if last_act_param is not None else float("nan")
             )
-            Qdot_gains_true = float(obs["disturbances"]["Qdot_gains"].flat[0])
+            Qdot_gains_true = float(info.get("Qdot_gains", float("nan")))
             T_set_lower = float(obs["setpoints"]["T_set_lower"].flat[0])
             T_set_upper = float(obs["setpoints"]["T_set_upper"].flat[0])
             T_room = float(info.get("T_room", float("nan")))
