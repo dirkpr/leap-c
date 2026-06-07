@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,7 @@ from i4b.models.model_hvac import Heatpump, Heatpump_AW
 
 from leap_c.examples.i4b.acados_ocp import export_parametric_ocp, make_i4b_params
 from leap_c.examples.i4b.env import _T_HP_ACT_HIGH, _T_HP_ACT_LOW
+from leap_c.examples.i4b.reward import RewardConfig, derive_ws, grid_signal_from_reward
 from leap_c.ocp.acados.parameters import AcadosParameter, AcadosParameterManager
 from leap_c.ocp.acados.planner import AcadosPlanner
 from leap_c.ocp.acados.torch import AcadosDiffMpcCtx, AcadosDiffMpcTorch
@@ -33,6 +34,11 @@ class I4bPlannerConfig:
         mdot_hp: Mass-flow rate of the HP circuit [kg/s].
         N_horizon: Number of shooting intervals (default: 12 = 3 h in 15-min steps).
         ws: Quadratic weight on soft-constraint slack variables for T_room comfort.
+            If None (default), it is derived from ``reward`` in ``__post_init__`` so
+            the OCP comfort weight stays aligned with the env reward; pass a float to
+            override.
+        reward: Reward configuration (single source of truth, shared with the env).
+            Drives the per-stage ``grid_signal`` price weight and the derived ``ws``.
         delta_t: Sampling time in seconds (default 900 = 15 min).
         T_set_upper: Default upper comfort temperature [degC] used as a fallback when
             the observation does not carry a setpoint forecast.
@@ -46,7 +52,8 @@ class I4bPlannerConfig:
     method: str = "4R3C"
     mdot_hp: float = 0.25
     N_horizon: int = 12  # 12 x 900 s = 3 h
-    ws: float = 0.1
+    ws: float | None = None
+    reward: RewardConfig = field(default_factory=RewardConfig)
     delta_t: float = 900.0
     T_set_upper: float = 26.0
     discount_factor: float | None = None
@@ -57,6 +64,8 @@ class I4bPlannerConfig:
     def __post_init__(self) -> None:
         if self.building_params is None:
             self.building_params = BUILDING_NAMES2CLASS["i4c"]
+        if self.ws is None:
+            self.ws = derive_ws(self.reward, self.delta_t)
 
 
 _ACTION_MID = (_T_HP_ACT_HIGH + _T_HP_ACT_LOW) / 2
@@ -220,12 +229,23 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
         T_set_lower_staged = _fc_to_staged(fc.get("T_set_lower"), T_set_lower_now, batch_size, N)
         T_set_upper_staged = _fc_to_staged(fc.get("T_set_upper"), T_set_upper_now, batch_size, N)
 
+        # Per-stage grid_signal = lam*(price/pi_ref) + (1-lam), aligned with the env
+        # reward's energy weighting. At lam=0 it is identically 1.0 (energy-only).
+        price_fc = fc.get("price")
+        if price_fc is not None:
+            price_now = price_fc[:, :1].detach().cpu().numpy()  # (B, 1)
+        else:
+            price_now = np.full((batch_size, 1), self.cfg.reward.pi_ref)
+        price_staged = _fc_to_staged(price_fc, price_now, batch_size, N)
+        grid_signal_staged = grid_signal_from_reward(price_staged, self.cfg.reward)
+
         # Qdot_gains is the learnable parameter the policy predicts (passed via
         # ``param`` -> p_global); it is intentionally not read from the observation.
         overwrites = {
             "T_amb": T_amb_staged,
             "T_set_lower": T_set_lower_staged,
             "T_set_upper": T_set_upper_staged,
+            "grid_signal": grid_signal_staged,
         }
 
         p_stagewise = self.param_manager.combine_non_learnable_parameter_values(**overwrites)

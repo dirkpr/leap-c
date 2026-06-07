@@ -23,6 +23,7 @@ import numpy as np
 import torch
 from channels import ChannelLogger, default_channels, header_from
 from numpy import ndarray
+from reward_setup import REWARD_NAMES, resolve_reward
 
 from leap_c.controller import CtxType, ParameterizedController
 from leap_c.examples import ExampleControllerName, create_controller
@@ -286,6 +287,7 @@ def run_baseline(
     only_train: bool = False,
     days: int = _DEFAULT_DAYS,
     overwrite: bool = False,
+    reward_name: str = "R0",
 ) -> float:
     """Run the i4b baseline.
 
@@ -298,21 +300,24 @@ def run_baseline(
         only_train: Run training episodes instead of validation.
         days: Episode length in days for validation (default: 3).
         overwrite: Delete existing output directory before running.
+        reward_name: Reward scenario (R0..R3); shared by the env and the OCP.
     """
     if overwrite and Path(output_path).exists():
         shutil.rmtree(output_path)
 
+    rcfg = resolve_reward(reward_name)
     env_cfg = I4bEnvConfig(
         building_params=BUILDING_NAMES2CLASS["i4c"],
         hp_model=Heatpump_AW(mdot_HP=0.25),
         days=days,
+        reward=rcfg,
     )
     val_env = I4bEnv(cfg=env_cfg) if not only_train else None
     train_env = I4bEnv(cfg=env_cfg) if only_train else None
 
     controller = None
     if cfg.policy_type == "controller":
-        controller = create_controller(cfg.controller, reuse_code_dir)
+        controller = create_controller(cfg.controller, reuse_code_dir, reward=rcfg)
 
     trainer = BaselineTrainer(
         cfg=cfg.trainer,
@@ -360,6 +365,13 @@ if __name__ == "__main__":
     group.add_argument(
         "--days", type=int, default=_DEFAULT_DAYS, help="Episode length in days for validation."
     )
+    group.add_argument(
+        "--reward",
+        type=str,
+        default="R0",
+        choices=REWARD_NAMES,
+        help="Reward scenario (R0 energy, R1 cost, R2 comfort, R3 combined).",
+    )
     group.add_argument("--param-ckpt", type=Path, default=None)
     group.add_argument(
         "--compute-sensitivities",
@@ -390,8 +402,16 @@ if __name__ == "__main__":
         cfg.trainer.log.wandb_init_kwargs = {
             "entity": args.wandb_entity,
             "project": args.wandb_project,
+            "group": args.wandb_group,
             "name": default_name(
-                args.seed, tags=["baseline", args.policy_type, "i4b", str(args.controller)]
+                args.seed,
+                tags=[
+                    "baseline",
+                    args.policy_type,
+                    "i4b",
+                    str(args.controller),
+                    args.reward,
+                ],
             ),
             "config": config_dict,
         }
@@ -399,7 +419,13 @@ if __name__ == "__main__":
     if args.output_path is None:
         output_path = default_output_path(
             seed=args.seed,
-            tags=["baseline", args.policy_type, "i4b", str(args.controller)],
+            tags=[
+                "baseline",
+                args.policy_type,
+                "i4b",
+                str(args.controller),
+                args.reward,
+            ],
         )
     else:
         output_path = args.output_path
@@ -420,4 +446,5 @@ if __name__ == "__main__":
         args.only_train,
         args.days,
         args.overwrite,
+        reward_name=args.reward,
     )

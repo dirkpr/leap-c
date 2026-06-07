@@ -4,9 +4,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import torch
+from reward_setup import REWARD_NAMES, resolve_reward
 from trainer import I4bSacFopTrainer
 
 from leap_c.examples import create_controller, create_env
+from leap_c.examples.i4b.env import BUILDING_NAMES2CLASS, Heatpump_AW, I4bEnvConfig
 from leap_c.run import default_controller_code_path, default_name, default_output_path, init_run
 from leap_c.torch.rl.sac_fop import SacFopTrainerConfig
 
@@ -74,12 +76,19 @@ def run(
     dtype: torch.dtype = torch.float32,
     reuse_code_dir: Path | None = None,
     with_val: bool = False,
+    reward_name: str = "R0",
 ) -> float:
-    val_env = create_env("i4b", render_mode="rgb_array") if with_val else None
+    rcfg = resolve_reward(reward_name)
+    env_cfg = I4bEnvConfig(
+        building_params=BUILDING_NAMES2CLASS["i4c"],
+        hp_model=Heatpump_AW(mdot_HP=0.25),
+        reward=rcfg,
+    )
+    val_env = create_env("i4b", render_mode="rgb_array", cfg=env_cfg) if with_val else None
     trainer = I4bSacFopTrainer(
         val_env=val_env,
-        train_env=create_env("i4b"),
-        controller=create_controller("i4b", reuse_code_dir),
+        train_env=create_env("i4b", cfg=env_cfg),
+        controller=create_controller("i4b", reuse_code_dir, reward=rcfg),
         output_path=output_path,
         device=device,
         dtype=dtype,
@@ -98,6 +107,13 @@ if __name__ == "__main__":
     parser.add_argument("--output-path", type=Path, default=None)
     parser.add_argument("--train-steps", type=int, default=None)
     parser.add_argument("--with-val", action="store_true")
+    parser.add_argument(
+        "--reward",
+        type=str,
+        default="R0",
+        choices=REWARD_NAMES,
+        help="Reward scenario (R0 energy, R1 cost, R2 comfort, R3 combined).",
+    )
     parser.add_argument(
         "-r",
         "--reuse-code",
@@ -122,7 +138,7 @@ if __name__ == "__main__":
     if args.train_steps is not None:
         cfg.trainer.train_steps = args.train_steps
 
-    tags = ["sac_fop", "i4b"]
+    tags = ["sac_fop", "i4b", args.reward]
 
     if args.use_wandb:
         config_dict = asdict(cfg)
@@ -147,4 +163,11 @@ if __name__ == "__main__":
     else:
         reuse_code_dir = None
 
-    run(cfg, output_path, device=args.device, reuse_code_dir=reuse_code_dir, with_val=args.with_val)
+    run(
+        cfg,
+        output_path,
+        device=args.device,
+        reuse_code_dir=reuse_code_dir,
+        with_val=args.with_val,
+        reward_name=args.reward,
+    )

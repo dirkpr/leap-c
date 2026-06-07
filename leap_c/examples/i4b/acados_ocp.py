@@ -202,7 +202,8 @@ def export_parametric_ocp(
 
     # ── Stage cost: electrical energy ─────────────────────────────────────────
     Qth = hp_model.mdot_HP * C_WATER_SPEC * (T_hp - T_hp_ret) / 1000  # [kW]
-    # NOTE (dirk): The grid_signal is an artifact of the i4b formulation. Always 1.0 for now.
+    # grid_signal carries the per-stage price weight lam*(pi/pi_ref) + (1-lam) set by
+    # the planner from the price forecast (RewardConfig); at lam=0 it is 1.0 (energy-only).
     stage_cost = Qth / (_cop_casadi(hp_model, T_hp, T_amb) * 100) * grid_signal
 
     ocp.cost.cost_type = "EXTERNAL"

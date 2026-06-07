@@ -35,7 +35,7 @@ The true value is published in the ``step()`` ``info`` dict instead (out-of-band
 never seen by the actor) for diagnostics.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import gymnasium as gym
@@ -50,6 +50,7 @@ from i4b.models.model_hvac import Heatpump, Heatpump_AW, Heatpump_Vitocal  # noq
 from i4b.simulator import Model_simulator
 
 from leap_c.examples.hvac.dataset import DataConfig, HvacDataset, load_and_prepare_data
+from leap_c.examples.i4b.reward import RewardConfig, compute_reward
 
 # Action bounds for T_HP supply temperature [degC], shared with the planner.
 _T_HP_ACT_LOW: float = OBSERVATION_SPACE_LIMIT["T_hp_sup"][0]
@@ -99,7 +100,12 @@ class I4bEnvConfig:
         N_forecast: Number of future steps with available weather/setpoint forecasts
             in the "forecast" observation dict. Should match the MPC horizon for best results,
             but can be set to 0 to disable the "forecast" part of the observation.
-        grid_signal: Grid support signal (OCP p[4]). Constant for now.
+        grid_signal: Deprecated for the reward. Price weighting now flows through
+            ``reward`` (RewardConfig); this field is kept for backward compatibility
+            but no longer multiplies the reward.
+        reward: Reward configuration (single source of truth, shared with the
+            planner). Defaults to R0 (energy-only, ``r = -E_k``) -- the historical
+            i4b reward when ``grid_signal == 1``.
         seed: If set, seeds the random COFACTOR apartment draw in
             _augment_dataset so the internal-gain disturbance is reproducible.
             None draws from entropy.
@@ -117,6 +123,7 @@ class I4bEnvConfig:
     T_set_upper: float = 26.0
     N_forecast: int = 24 * 4
     grid_signal: float = 1.0
+    reward: RewardConfig = field(default_factory=RewardConfig)
     seed: int | None = None
     apply_heating_logic: bool = False
     start_date: str | None = None
@@ -134,9 +141,11 @@ class I4bEnv(gym.Env):
     The action is a normalised supply temperature in [-1, 1], mapped linearly
     to T_HP in [0, 65] degC (matching the OCP control bounds).
 
-    The reward is the negative electrical energy consumption scaled by the grid
-    signal, i.e.  r = -E_el_kWh * grid_signal, which is proportional to the
-    OCP stage cost Qth / (COP * 100) * grid_signal up to a positive constant.
+    The reward is configurable via ``cfg.reward`` (a ``RewardConfig``); see
+    ``leap_c/examples/i4b/reward.py``. It defaults to R0 (energy-only,
+    ``r = -E_el_kWh``) and is co-designed with the OCP stage cost so the env and the
+    planner optimize the same objective. The per-term decomposition is published in
+    ``info["reward_terms"]``.
 
     The method `get_ocp_parameters(t)` returns the OCP parameter vector
     p = [T_amb, Qdot_gains, T_set_lower, T_set_upper, grid_signal] at timestep t,
@@ -363,6 +372,13 @@ class I4bEnv(gym.Env):
             "Qdot_gains": float(self.dataset.get_column("Qdot_gains", self._idx)),
         }
 
+        # Reward signals at the current index k, captured *before* the _idx increment
+        # below: the interval price pi_k pairs with the energy E_k, and the
+        # start-of-step room/bound feed the shaping potential Phi(s_k).
+        price_k = float(self.dataset.get_column("price", self._idx))
+        T_room_prev = float(state_dict["T_room"])
+        T_set_lower_prev = float(self.dataset.get_column("T_set_lower", self._idx))
+
         T_hp_sup = self._denorm_action(action)
 
         if self.cfg.apply_heating_logic:
@@ -386,7 +402,26 @@ class I4bEnv(gym.Env):
         self.step_counter += 1
         self.state = self._build_obs(next_state)
 
-        reward = -E_el_kWh * self.cfg.grid_signal
+        # Comfort deviations at the arrival index k+1 (self._idx now == k+1) against
+        # the realized room temperature. Computed directly from the dynamic dataset
+        # comfort band -- NOT costs["dev_neg_*"], which use the static 20 degC bound.
+        T_room_next = float(next_state["T_room"])
+        T_set_lower_kp1 = float(self.dataset.get_column("T_set_lower", self._idx))
+        T_set_upper_kp1 = float(self.dataset.get_column("T_set_upper", self._idx))
+        d_k = max(0.0, T_set_lower_kp1 - T_room_next)
+        o_k = max(0.0, T_room_next - T_set_upper_kp1)
+
+        reward, reward_terms = compute_reward(
+            self.cfg.reward,
+            E_k=E_el_kWh,
+            price_k=price_k,
+            d_k=d_k,
+            o_k=o_k,
+            T_room=T_room_next,
+            T_set_lower=T_set_lower_kp1,
+            T_room_prev=T_room_prev,
+            T_set_lower_prev=T_set_lower_prev,
+        )
         truncated = (
             self._idx + self.cfg.N_forecast >= len(self.dataset)
             or self.step_counter >= self.max_steps
@@ -403,6 +438,9 @@ class I4bEnv(gym.Env):
             # actor can't see them) for the predicted-vs-true Qdot_gains diagnostic.
             "Qdot_gains": pk_dict["Qdot_gains"],
             "t": self._idx,
+            # Per-term reward decomposition (energy/comfort/overheat/shaping/total
+            # plus E, price, cost, deviations, grid_signal) for diagnostics/plots.
+            "reward_terms": reward_terms,
         }
 
         obs = self._copy_obs(self.state)
