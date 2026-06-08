@@ -37,6 +37,7 @@ never seen by the actor) for diagnostics.
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import gymnasium as gym
 import numpy as np
@@ -50,6 +51,7 @@ from i4b.models.model_hvac import Heatpump, Heatpump_AW, Heatpump_Vitocal  # noq
 from i4b.simulator import Model_simulator
 
 from leap_c.examples.hvac.dataset import DataConfig, HvacDataset, load_and_prepare_data
+from leap_c.examples.hvac.forecast import ForecastConfig, predict_ar1_error
 from leap_c.examples.i4b.reward import RewardConfig, compute_reward
 
 # Action bounds for T_HP supply temperature [degC], shared with the planner.
@@ -92,14 +94,36 @@ class I4bEnvConfig:
         mdot_hp: Mass flow rate of the HP system [kg/s].
         delta_t: Simulation timestep [s].
         days: Episode length in days. None uses full weather dataset.
-        random_init: Randomise initial state and start time on reset.
-        noise_level: Std dev of Gaussian noise added to building state observations.
+        random_init: Randomise the initial building state on reset (sampled from the
+            observation-space limits). The episode *start time* is chosen by the
+            dataset split (see ``data_mode``/``valid_months``), independent of this flag.
+        noise_level: Std dev of Gaussian measurement noise added to the building state
+            observation in step(). 0 disables it.
+        process_noise_std: Std dev of Gaussian process noise [degC] added to each
+            building state after the simulator integration in step(). 0 disables it.
+        data_mode: Dataset sampling mode passed to the HvacDataset split machinery.
+            "random" samples a fixed-length window per episode (train excludes the
+            stratified test windows); "continual" walks the dataset sequentially.
+        valid_months: Months (1-12) the start time may fall in (heating season by
+            default). None allows all months.
+        total_test_episodes: Number of fixed, stratified (year, month) test windows
+            reserved for evaluation. Should be >= the validation rollout count so eval
+            windows don't repeat within a pass. 0 disables the split (eval samples freely).
+        split_seed: Seed for the reproducible train/test split.
         T_set_lower: Default lower comfort temperature setpoint [degC]. Overridden
             by time-varying values from get_temperature_limits if using dynamic setpoints.
         T_set_upper: Default upper comfort temperature [degC].
         N_forecast: Number of future steps with available weather/setpoint forecasts
             in the "forecast" observation dict. Should match the MPC horizon for best results,
             but can be set to 0 to disable the "forecast" part of the observation.
+        forecast_noise: hvac-style AR(1) forecast-error model. Defaults to a
+            ``ForecastConfig()`` (the hvac ``negative_bias`` preset), so the ``T_amb``
+            forecast gets Normal AR(1) noise and the solar forecasts (``dhi``/``ghi``/``dni``)
+            get Laplace AR(1) noise, drawn fresh each step from the env RNG; the true
+            disturbance stepping the dynamics stays unperturbed. Set to None for perfect
+            foresight (exact future dataset values). ``ForecastConfig.horizon_hours`` is
+            ignored (the horizon is governed by ``N_forecast``); only ``temp_uncertainty``
+            and ``solar_uncertainty`` are used.
         grid_signal: Deprecated for the reward. Price weighting now flows through
             ``reward`` (RewardConfig); this field is kept for backward compatibility
             but no longer multiplies the reward.
@@ -119,9 +143,15 @@ class I4bEnvConfig:
     days: int = 3
     random_init: bool = False
     noise_level: float = 0.0
+    process_noise_std: float = 0.0
+    data_mode: Literal["random", "continual"] = "random"
+    valid_months: list[int] | None = field(default_factory=lambda: [1, 2, 12])
+    total_test_episodes: int = 16
+    split_seed: int = 42
     T_set_lower: float = 20.0
     T_set_upper: float = 26.0
     N_forecast: int = 24 * 4
+    forecast_noise: ForecastConfig | None = field(default_factory=ForecastConfig)
     grid_signal: float = 1.0
     reward: RewardConfig = field(default_factory=RewardConfig)
     seed: int | None = None
@@ -214,13 +244,39 @@ class I4bEnv(gym.Env):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _create_default_dataset(self) -> HvacDataset:
-        """Load a default HvacDataset from local CSV assets."""
+        """Load a default HvacDataset from local CSV assets.
+
+        The dataset is configured with the train/test split machinery so that
+        ``reset()`` can sample non-overlapping train and (fixed, stratified) test
+        windows. ``start_date`` is folded into ``DataConfig.start_time`` (snapped to
+        the nearest grid point) as the deterministic single-window escape hatch.
+        """
+        cfg = self.cfg
         data = load_and_prepare_data(
             price_zone="DE-LU",
             price_data_path=Path(__file__).parent / "assets" / "price.csv",
             weather_data_path=Path(__file__).parent / "assets" / "weather.csv",
         )
-        return HvacDataset(data=data, cfg=DataConfig(valid_months=None))
+        if cfg.days is not None:
+            max_hours = int(cfg.days * 24)
+        else:
+            # Full-dataset episode: a single long window from the first valid index.
+            max_hours = int((len(data) - cfg.N_forecast - 1) / 4)
+
+        start_time = None
+        if cfg.start_date is not None:
+            pos = int(data.index.searchsorted(pd.Timestamp(cfg.start_date, tz="UTC")))
+            start_time = data.index[min(pos, len(data) - 1)]
+
+        data_cfg = DataConfig(
+            mode=cfg.data_mode,
+            max_hours=max_hours,
+            valid_months=cfg.valid_months,
+            total_test_episodes=cfg.total_test_episodes,
+            split_seed=cfg.split_seed,
+            start_time=start_time,
+        )
+        return HvacDataset(data=data, cfg=data_cfg)
 
     def _augment_dataset(self) -> None:
         """Compute building-specific disturbances and write them to the dataset.
@@ -343,7 +399,50 @@ class I4bEnv(gym.Env):
                 "dni": gcv("direct_normal_irradiance", self._idx, nf),
                 "price": gcv("price", self._idx, nf),
             }
+            if self.cfg.forecast_noise is not None:
+                self._add_forecast_noise(obs["forecast"])
         return obs
+
+    def _add_forecast_noise(self, fc: dict) -> None:
+        """Perturb the forecast dict in place with hvac-style AR(1) forecast error.
+
+        ``T_amb`` gets Normal AR(1) noise and each solar component
+        (``dhi``/``ghi``/``dni``) gets an independent Laplace AR(1) draw, clamped to
+        ``>= 0``. New arrays are created so the zero-copy dataset views are not mutated.
+        The true disturbance stepping the dynamics is left untouched -- only the forecast
+        the controller plans against is noisy.
+        """
+        nf = self.cfg.N_forecast
+        cfg = self.cfg.forecast_noise
+
+        tu = cfg.temp_uncertainty
+        if tu is not None:
+            err = predict_ar1_error(
+                hp=nf,
+                initial_mean=tu.F0,
+                initial_scale=tu.K0,
+                ar_factor=tu.F,
+                ar_mean=tu.mu,
+                ar_scale=tu.K,
+                np_random=self.np_random,
+                distribution="normal",
+            )
+            fc["T_amb"] = (fc["T_amb"] + err).astype(np.float32)
+
+        su = cfg.solar_uncertainty
+        if su is not None:
+            for key in ("dhi", "ghi", "dni"):
+                err = predict_ar1_error(
+                    hp=nf,
+                    initial_mean=su.ag0,
+                    initial_scale=su.bg0,
+                    ar_factor=su.phi,
+                    ar_mean=su.ag,
+                    ar_scale=su.bg,
+                    np_random=self.np_random,
+                    distribution="laplace",
+                )
+                fc[key] = np.maximum(0.0, fc[key] + err).astype(np.float32)
 
     def _copy_obs(self, obs: dict) -> dict:
         """Return a shallow-copied dict obs (arrays copied, nested dicts recursed)."""
@@ -395,6 +494,12 @@ class I4bEnv(gym.Env):
 
         res = self.simulator.get_next_state(state_dict, T_hp_sup, pk_dict)
         next_state = res["state"]
+        # Process noise: perturb each integrated building state [degC] so the realized
+        # trajectory (and thus the comfort the occupant experiences) is stochastic.
+        # Applied to the true state, separate from the observation-only measurement noise.
+        if self.cfg.process_noise_std > 0:
+            for k in self.state_keys:
+                next_state[k] += float(self.np_random.normal(0, self.cfg.process_noise_std))
         costs = res["cost"]
         E_el_kWh = float(costs["E_el"]) / 1000.0
 
@@ -454,21 +559,24 @@ class I4bEnv(gym.Env):
     def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:
         super().reset(seed=seed)
 
-        steps_per_day = 24 * int(3600 / self.cfg.delta_t)
-        # Cap max_steps so the forecast window never extends beyond the dataset.
-        data_limit = len(self.dataset) - self.cfg.N_forecast - 1
-        self.max_steps = min(
-            self.cfg.days * steps_per_day if self.cfg.days is not None else data_limit,
-            data_limit,
-        )
-
-        if self.cfg.random_init:
-            max_start = max(0, len(self.dataset) - self.max_steps - self.cfg.N_forecast)
-            self._idx = int(self.np_random.integers(0, max(1, max_start)))
-        elif self.cfg.start_date is not None:
-            self._idx = self.dataset.index.searchsorted(pd.Timestamp(self.cfg.start_date, tz="UTC"))
+        # Select the episode start window via the dataset split. ``options["mode"]
+        # == "train"`` (set by the SAC loops) samples from the train split, excluding
+        # the fixed stratified test windows; everything else (e.g. validation rollouts,
+        # which pass no options) draws the reproducible test windows in order.
+        if options is not None and options.get("mode") == "train":
+            split = "train"
         else:
-            self._idx = 0
+            split = "test"
+            # Reset the test cursor so each seeded validation pass replays the same
+            # stratified test windows in the same order.
+            if self.dataset.cfg.mode == "random" and seed is not None:
+                self.dataset.reset_test_counter()
+
+        self._idx, self.max_steps = self.dataset.sample_start_index(
+            rng=self.np_random,
+            horizon=self.cfg.N_forecast,
+            split=split,
+        )
 
         self.step_counter = 0
 

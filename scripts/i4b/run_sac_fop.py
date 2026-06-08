@@ -84,6 +84,17 @@ def run(
         building_params=BUILDING_NAMES2CLASS["i4c"],
         hp_model=Heatpump_AW(mdot_HP=0.25),
         reward=rcfg,
+        # Seed the COFACTOR internal-gains draw so the disturbance is reproducible and
+        # varies per run instead of being drawn from entropy.
+        seed=cfg.trainer.seed,
+        # Stochasticity so seeds decorrelate (tune as needed). noise_level is
+        # observation-only measurement noise; process_noise_std perturbs the true
+        # building state each step [degC].
+        noise_level=0.1,
+        process_noise_std=0.02,
+        # Randomise the initial building state each reset so episodes start from
+        # diverse thermal conditions (further decorrelates seeds/episodes).
+        random_init=True,
     )
     val_env = create_env("i4b", render_mode="rgb_array", cfg=env_cfg) if with_val else None
     controller = create_controller("i4b", reuse_code_dir, reward=rcfg)

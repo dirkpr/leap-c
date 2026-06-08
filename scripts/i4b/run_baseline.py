@@ -312,6 +312,17 @@ def run_baseline(
         hp_model=Heatpump_AW(mdot_HP=0.25),
         days=days,
         reward=rcfg,
+        # Seed the COFACTOR internal-gains draw so the disturbance is reproducible and
+        # varies per run instead of being drawn from entropy.
+        seed=cfg.trainer.seed,
+        # Match the SAC training env so the baseline is evaluated on the same stochastic
+        # environment (fair comparison). noise_level is observation-only measurement
+        # noise; process_noise_std perturbs the true building state each step [degC].
+        noise_level=0.1,
+        process_noise_std=0.02,
+        # Randomise the initial building state each reset, mirroring the SAC training
+        # env so the baseline is evaluated on the same stochastic environment.
+        random_init=True,
     )
     val_env = I4bEnv(cfg=env_cfg) if not only_train else None
     train_env = I4bEnv(cfg=env_cfg) if only_train else None
