@@ -83,7 +83,14 @@ def _wandb_args(args: argparse.Namespace, group: str) -> list[str]:
     """W&B CLI flags shared by every run script (empty if logging is off)."""
     if not args.use_wandb:
         return []
-    flags = ["--use-wandb", "--wandb-project", args.wandb_project, "--wandb-group", group]
+    flags = [
+        "--use-wandb",
+        "--wandb-project",
+        args.wandb_project,
+        "--wandb-group",
+        group,
+        "--append-start-time",
+    ]
     if args.wandb_entity is not None:
         flags += ["--wandb-entity", args.wandb_entity]
     return flags

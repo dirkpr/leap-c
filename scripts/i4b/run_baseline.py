@@ -15,6 +15,7 @@ Example:
 import shutil
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator, Literal
 
@@ -400,6 +401,12 @@ if __name__ == "__main__":
     group.add_argument("--wandb-entity", type=str, default=None)
     group.add_argument("--wandb-project", type=str, default="leap-c")
     group.add_argument("--wandb-group", type=str, default="baseline-i4b")
+    group.add_argument(
+        "--append-start-time",
+        action="store_true",
+        help="Append the run's start time (YYYY_MM_DD_HH_MM_SS) to the W&B "
+        "run name so reruns don't collide.",
+    )
 
     args = parser.parse_args()
 
@@ -414,21 +421,24 @@ if __name__ == "__main__":
 
     if args.use_wandb:
         config_dict = asdict(cfg)
+        name = default_name(
+            args.seed,
+            tags=[
+                "baseline",
+                args.policy_type,
+                "i4b",
+                str(args.controller),
+                args.reward,
+            ],
+        )
+        if args.append_start_time:
+            name += "_" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         cfg.trainer.log.wandb_logger = True
         cfg.trainer.log.wandb_init_kwargs = {
             "entity": args.wandb_entity,
             "project": args.wandb_project,
             "group": args.wandb_group,
-            "name": default_name(
-                args.seed,
-                tags=[
-                    "baseline",
-                    args.policy_type,
-                    "i4b",
-                    str(args.controller),
-                    args.reward,
-                ],
-            ),
+            "name": name,
             "config": config_dict,
         }
 

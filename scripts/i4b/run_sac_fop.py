@@ -1,6 +1,7 @@
 """Run SAC-FOP for the i4b environment."""
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -148,6 +149,12 @@ if __name__ == "__main__":
     group.add_argument("--wandb-entity", type=str, default=None, help="W&B entity name.")
     group.add_argument("--wandb-project", type=str, default="leap-c", help="W&B project name.")
     group.add_argument("--wandb-group", type=str, default="SAC-FOP", help="W&B group name.")
+    group.add_argument(
+        "--append-start-time",
+        action="store_true",
+        help="Append the run's start time (YYYY_MM_DD_HH_MM_SS) to the W&B "
+        "run name so reruns don't collide.",
+    )
     args = parser.parse_args()
 
     cfg = create_cfg(seed=args.seed)
@@ -158,12 +165,15 @@ if __name__ == "__main__":
 
     if args.use_wandb:
         config_dict = asdict(cfg)
+        name = default_name(args.seed, tags=tags)
+        if args.append_start_time:
+            name += "_" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         cfg.trainer.log.wandb_logger = True
         cfg.trainer.log.wandb_init_kwargs = {
             "entity": args.wandb_entity,
             "project": args.wandb_project,
             "group": args.wandb_group,
-            "name": default_name(args.seed, tags=tags),
+            "name": name,
             "config": config_dict,
         }
 
