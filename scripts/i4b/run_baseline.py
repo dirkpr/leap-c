@@ -23,6 +23,7 @@ import numpy as np
 import torch
 from channels import ChannelLogger, default_channels, header_from
 from numpy import ndarray
+from ocp_logging import dump_solver_config
 from reward_setup import REWARD_NAMES, resolve_reward
 
 from leap_c.controller import CtxType, ParameterizedController
@@ -330,6 +331,10 @@ def run_baseline(
         train_env=train_env,
     )
     init_run(trainer, cfg, output_path)
+    if controller is not None:
+        dump_solver_config(
+            output_path, controller, algo="baseline", reward_name=reward_name, env_cfg=env_cfg
+        )
     return trainer.run()
 
 

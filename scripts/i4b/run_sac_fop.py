@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import torch
+from ocp_logging import dump_solver_config
 from reward_setup import REWARD_NAMES, resolve_reward
 from trainer import I4bSacFopTrainer
 
@@ -85,16 +86,20 @@ def run(
         reward=rcfg,
     )
     val_env = create_env("i4b", render_mode="rgb_array", cfg=env_cfg) if with_val else None
+    controller = create_controller("i4b", reuse_code_dir, reward=rcfg)
     trainer = I4bSacFopTrainer(
         val_env=val_env,
         train_env=create_env("i4b", cfg=env_cfg),
-        controller=create_controller("i4b", reuse_code_dir, reward=rcfg),
+        controller=controller,
         output_path=output_path,
         device=device,
         dtype=dtype,
         cfg=cfg.trainer,
     )
     init_run(trainer, cfg, output_path)
+    dump_solver_config(
+        output_path, controller, algo="sac_fop", reward_name=reward_name, env_cfg=env_cfg
+    )
     return trainer.run()
 
 

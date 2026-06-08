@@ -166,6 +166,9 @@ class I4bPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
             ws=self.cfg.ws,
             delta_t=self.cfg.delta_t,
         )
+        # Retain the assembled OCP so it can be serialized (acados_ocp.json) for
+        # reproducibility; the batch-solver build below makes it consistent.
+        self.ocp = ocp
 
         if diff_mpc_kwargs is None:
             diff_mpc_kwargs = {}
