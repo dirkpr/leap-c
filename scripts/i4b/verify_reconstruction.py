@@ -59,6 +59,13 @@ def _env_cfg_from_recipe(env: dict, reward_cfg) -> I4bEnvConfig:
         days=env["days"],
         random_init=env["random_init"],
         noise_level=env["noise_level"],
+        # New fields default to the I4bEnvConfig defaults so pre-existing run logs
+        # (written before these were added) still reconstruct.
+        process_noise_std=env.get("process_noise_std", 0.0),
+        data_mode=env.get("data_mode", "random"),
+        valid_months=env.get("valid_months", [1, 2, 12]),
+        total_test_episodes=env.get("total_test_episodes", 16),
+        split_seed=env.get("split_seed", 42),
         T_set_lower=env["T_set_lower"],
         T_set_upper=env["T_set_upper"],
         N_forecast=env["N_forecast"],
