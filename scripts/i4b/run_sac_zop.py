@@ -5,12 +5,17 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
+from env_setup import (
+    EnvStochasticityConfig,
+    add_env_noise_args,
+    build_env_cfg,
+    stochasticity_from_args,
+)
 from ocp_logging import dump_solver_config
 from reward_setup import REWARD_NAMES, resolve_reward
 from trainer import I4bSacZopTrainer
 
 from leap_c.examples import create_controller, create_env
-from leap_c.examples.i4b.env import BUILDING_NAMES2CLASS, Heatpump_AW, I4bEnvConfig
 from leap_c.run import default_controller_code_path, default_name, default_output_path, init_run
 from leap_c.torch.rl.sac_zop import SacZopTrainerConfig
 
@@ -18,6 +23,7 @@ from leap_c.torch.rl.sac_zop import SacZopTrainerConfig
 @dataclass
 class RunI4bSacZopConfig:
     trainer: SacZopTrainerConfig = field(default_factory=SacZopTrainerConfig)
+    env: EnvStochasticityConfig = field(default_factory=EnvStochasticityConfig)
 
 
 def create_cfg(seed: int = 0) -> RunI4bSacZopConfig:
@@ -81,22 +87,7 @@ def run(
     reward_name: str = "R0",
 ) -> float:
     rcfg = resolve_reward(reward_name)
-    env_cfg = I4bEnvConfig(
-        building_params=BUILDING_NAMES2CLASS["i4c"],
-        hp_model=Heatpump_AW(mdot_HP=0.25),
-        reward=rcfg,
-        # Seed the COFACTOR internal-gains draw so the disturbance is reproducible and
-        # varies per run instead of being drawn from entropy.
-        seed=cfg.trainer.seed,
-        # Stochasticity so seeds decorrelate (tune as needed). noise_level is
-        # observation-only measurement noise; process_noise_std perturbs the true
-        # building state each step [degC].
-        noise_level=0.1,
-        process_noise_std=0.02,
-        # Randomise the initial building state each reset so episodes start from
-        # diverse thermal conditions (further decorrelates seeds/episodes).
-        random_init=True,
-    )
+    env_cfg = build_env_cfg(cfg.env, rcfg, seed=cfg.trainer.seed)
     val_env = create_env("i4b", render_mode="rgb_array", cfg=env_cfg) if with_val else None
     controller = create_controller("i4b", reuse_code_dir, reward=rcfg)
     trainer = I4bSacZopTrainer(
@@ -155,9 +146,11 @@ if __name__ == "__main__":
         help="Append the run's start time (YYYY_MM_DD_HH_MM_SS) to the W&B "
         "run name so reruns don't collide.",
     )
+    add_env_noise_args(parser)
     args = parser.parse_args()
 
     cfg = create_cfg(seed=args.seed)
+    cfg.env = stochasticity_from_args(args)
     if args.train_steps is not None:
         cfg.trainer.train_steps = args.train_steps
 

@@ -292,6 +292,43 @@ def default_channels(
                     )
                 )
 
+    # ── Forecast vs. true coming data (inspect injected _add_forecast_noise) ──
+    # For each noised channel, log the noisy forecast window the controller plans
+    # against (obs["forecast"][key]) alongside the true coming dataset window.
+    # record() runs AFTER env.step() advanced env._idx by one, so the truth window
+    # matching the pre-step obs["forecast"] sits at env._idx - 1 — the same
+    # (idx, N_forecast) the env built the forecast from, hence always in range.
+    if has_forecast:
+        forecast_truth = [
+            ("T_amb", "temperature_2m", "T_amb [°C]"),
+            ("dhi", "diffuse_radiation", "dhi [W/m^2]"),
+            ("ghi", "shortwave_radiation", "ghi [W/m^2]"),
+            ("dni", "direct_normal_irradiance", "dni [W/m^2]"),
+        ]
+        for key, col, label in forecast_truth:
+            channels.append(
+                Channel(
+                    name=f"fc_{key}",
+                    sequence=(
+                        lambda k: lambda obs, info, a, ctx, r: np.asarray(obs["forecast"][k])
+                    )(key),
+                    panel="forecast",
+                    ylabel=label,
+                )
+            )
+            channels.append(
+                Channel(
+                    name=f"true_{key}",
+                    sequence=(
+                        lambda c: lambda obs, info, a, ctx, r: env.dataset.get_column_view(
+                            c, env._idx - 1, env.cfg.N_forecast
+                        )
+                    )(col),
+                    panel="forecast",
+                    ylabel=label,
+                )
+            )
+
     # ── Step metrics ──
     if False:
         channels.append(

@@ -26,6 +26,11 @@ from trainer import I4bSacFopTrainer, I4bSacZopTrainer
 from yaml import safe_load
 
 from leap_c.examples import create_controller
+from leap_c.examples.hvac.forecast import (
+    ForecastConfig,
+    SolarUncertaintyConfig,
+    TemperatureUncertaintyConfig,
+)
 from leap_c.examples.i4b.env import (
     BUILDING_NAMES2CLASS,
     Heatpump_AW,
@@ -45,6 +50,32 @@ TRAINER_BY_ALGO = {
 }
 
 _HP_MODELS = {"Heatpump_AW": Heatpump_AW, "Heatpump_Vitocal": Heatpump_Vitocal}
+
+# Sentinel distinguishing "forecast_noise not in the recipe" (pre-2026-06-09 logs)
+# from "forecast_noise recorded as null" (perfect foresight).
+_MISSING = object()
+
+
+def _forecast_noise_from_recipe(value) -> ForecastConfig | None:
+    """Rebuild ``forecast_noise`` from its recipe entry.
+
+    ``value`` is the recorded ``asdict(ForecastConfig)`` dict, ``None`` (forecast noise
+    explicitly disabled), or ``_MISSING`` for logs predating its recording (fall back to
+    the ``I4bEnvConfig`` default — the negative_bias preset that was active then). The
+    recorded per-channel entries are already-resolved AR(1) parameter dicts (or ``None``),
+    which ``ForecastConfig`` passes through untouched.
+    """
+    if value is _MISSING:
+        return ForecastConfig()
+    if value is None:
+        return None
+    temp = value.get("temp_uncertainty")
+    solar = value.get("solar_uncertainty")
+    return ForecastConfig(
+        horizon_hours=value.get("horizon_hours", 24),
+        temp_uncertainty=TemperatureUncertaintyConfig(**temp) if temp is not None else None,
+        solar_uncertainty=SolarUncertaintyConfig(**solar) if solar is not None else None,
+    )
 
 
 def _env_cfg_from_recipe(env: dict, reward_cfg) -> I4bEnvConfig:
@@ -69,6 +100,7 @@ def _env_cfg_from_recipe(env: dict, reward_cfg) -> I4bEnvConfig:
         T_set_lower=env["T_set_lower"],
         T_set_upper=env["T_set_upper"],
         N_forecast=env["N_forecast"],
+        forecast_noise=_forecast_noise_from_recipe(env.get("forecast_noise", _MISSING)),
         grid_signal=env["grid_signal"],
         apply_heating_logic=env["apply_heating_logic"],
         start_date=env["start_date"],

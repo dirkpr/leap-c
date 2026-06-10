@@ -66,6 +66,9 @@ def _env_recipe(env_cfg: I4bEnvConfig, building_name: str) -> dict:
         "T_set_lower": float(env_cfg.T_set_lower),
         "T_set_upper": float(env_cfg.T_set_upper),
         "N_forecast": int(env_cfg.N_forecast),
+        "forecast_noise": (
+            asdict(env_cfg.forecast_noise) if env_cfg.forecast_noise is not None else None
+        ),
         "grid_signal": float(env_cfg.grid_signal),
         "apply_heating_logic": bool(env_cfg.apply_heating_logic),
         "start_date": env_cfg.start_date,

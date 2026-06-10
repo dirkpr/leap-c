@@ -23,13 +23,19 @@ import gymnasium as gym
 import numpy as np
 import torch
 from channels import ChannelLogger, default_channels, header_from
+from env_setup import (
+    EnvStochasticityConfig,
+    add_env_noise_args,
+    build_env_cfg,
+    stochasticity_from_args,
+)
 from numpy import ndarray
 from ocp_logging import dump_solver_config
 from reward_setup import REWARD_NAMES, resolve_reward
 
 from leap_c.controller import CtxType, ParameterizedController
 from leap_c.examples import ExampleControllerName, create_controller
-from leap_c.examples.i4b.env import BUILDING_NAMES2CLASS, Heatpump_AW, I4bEnv, I4bEnvConfig
+from leap_c.examples.i4b.env import I4bEnv
 from leap_c.run import (
     default_controller_code_path,
     default_name,
@@ -71,6 +77,7 @@ class RunBaselineConfig:
     controller: ExampleControllerName | None = None
     policy_type: Literal["controller", "random"] = "controller"
     trainer: BaselineTrainerConfig = field(default_factory=BaselineTrainerConfig)
+    stochasticity: EnvStochasticityConfig = field(default_factory=EnvStochasticityConfig)
     start_date: str | None = None
     end_date: str | None = None
 
@@ -308,23 +315,9 @@ def run_baseline(
         shutil.rmtree(output_path)
 
     rcfg = resolve_reward(reward_name)
-    env_cfg = I4bEnvConfig(
-        building_params=BUILDING_NAMES2CLASS["i4c"],
-        hp_model=Heatpump_AW(mdot_HP=0.25),
-        days=days,
-        reward=rcfg,
-        # Seed the COFACTOR internal-gains draw so the disturbance is reproducible and
-        # varies per run instead of being drawn from entropy.
-        seed=cfg.trainer.seed,
-        # Match the SAC training env so the baseline is evaluated on the same stochastic
-        # environment (fair comparison). noise_level is observation-only measurement
-        # noise; process_noise_std perturbs the true building state each step [degC].
-        noise_level=0.1,
-        process_noise_std=0.02,
-        # Randomise the initial building state each reset, mirroring the SAC training
-        # env so the baseline is evaluated on the same stochastic environment.
-        random_init=True,
-    )
+    # Same stochasticity config as the SAC training env so the baseline is evaluated on
+    # the identical stochastic environment (apples-to-apples comparison).
+    env_cfg = build_env_cfg(cfg.stochasticity, rcfg, seed=cfg.trainer.seed, days=days)
     val_env = I4bEnv(cfg=env_cfg) if not only_train else None
     train_env = I4bEnv(cfg=env_cfg) if only_train else None
 
@@ -408,6 +401,8 @@ if __name__ == "__main__":
         "run name so reruns don't collide.",
     )
 
+    add_env_noise_args(parser)
+
     args = parser.parse_args()
 
     cfg = create_cfg(
@@ -417,6 +412,7 @@ if __name__ == "__main__":
         policy_type=args.policy_type,
         param_ckpt=args.param_ckpt,
     )
+    cfg.stochasticity = stochasticity_from_args(args)
     cfg.trainer.compute_sensitivities = args.compute_sensitivities
 
     if args.use_wandb:

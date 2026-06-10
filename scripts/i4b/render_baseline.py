@@ -223,6 +223,110 @@ def _matrix_panel_figure(panel: Panel, arrays: dict[str, np.ndarray]) -> go.Figu
     return fig
 
 
+_FORECAST_SPECS = [
+    ("T_amb", "T_amb [°C]"),
+    ("dhi", "dhi [W/m^2]"),
+    ("ghi", "ghi [W/m^2]"),
+    ("dni", "dni [W/m^2]"),
+]
+
+
+def _forecast_snapshot_figure(arrays: dict[str, np.ndarray], dt_h: float) -> go.Figure | None:
+    """Overlay the noisy forecast vs the true coming window over the horizon.
+
+    One representative daylight snapshot (the closed-loop step whose true GHI
+    window carries the most solar energy, so the solar channels are non-trivial).
+    Solid = true coming data, dashed = noisy forecast the controller planned against;
+    the gap between the two lines is the injected ``_add_forecast_noise`` error.
+    """
+    from plotly.subplots import make_subplots
+
+    present = [
+        (k, lab) for k, lab in _FORECAST_SPECS if f"fc_{k}" in arrays and f"true_{k}" in arrays
+    ]
+    if not present:
+        return None
+
+    # Representative daylight snapshot so the solar channels are informative.
+    k = int(np.nansum(arrays["true_ghi"], axis=1).argmax()) if "true_ghi" in arrays else 0
+    nf = arrays[f"fc_{present[0][0]}"].shape[1]
+    x = np.arange(nf) * dt_h
+
+    fig = make_subplots(
+        rows=len(present), cols=1, shared_xaxes=True, subplot_titles=[lab for _, lab in present]
+    )
+    for row, (key, lab) in enumerate(present, start=1):
+        first = row == 1
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=arrays[f"true_{key}"][k],
+                name="true coming data",
+                legendgroup="true",
+                showlegend=first,
+                mode="lines",
+                line=dict(color="#1f77b4", width=2),
+            ),
+            row=row,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=arrays[f"fc_{key}"][k],
+                name="noisy forecast",
+                legendgroup="fc",
+                showlegend=first,
+                mode="lines",
+                line=dict(color="#d62728", width=1.4, dash="dash"),
+            ),
+            row=row,
+            col=1,
+        )
+        fig.update_yaxes(title_text=lab, row=row, col=1)
+    fig.update_xaxes(title_text="horizon offset [h]", row=len(present), col=1)
+    fig.update_layout(
+        height=220 * len(present),
+        title=f"forecast vs true coming data — snapshot @ {k * dt_h:.1f} h",
+        legend=dict(orientation="h"),
+    )
+    return fig
+
+
+def _forecast_error_heatmaps(arrays: dict[str, np.ndarray], dt_h: float) -> dict[str, go.Figure]:
+    """Per-channel (T × horizon) heatmap of the injected forecast error.
+
+    ``noisy forecast - true coming data`` over the whole episode: rows = closed-loop
+    time, columns = horizon offset. Diverging scale centred at 0 so the AR(1) noise
+    structure and any systematic bias (e.g. the negative_bias preset) are visible.
+    """
+    figs: dict[str, go.Figure] = {}
+    for key, lab in _FORECAST_SPECS:
+        if f"fc_{key}" not in arrays or f"true_{key}" not in arrays:
+            continue
+        err = arrays[f"fc_{key}"] - arrays[f"true_{key}"]  # (T, nf)
+        horizon_offsets = np.arange(err.shape[1]) * dt_h
+        t_cl = np.arange(err.shape[0]) * dt_h
+        fig = go.Figure(
+            go.Heatmap(
+                z=err,
+                x=horizon_offsets,
+                y=t_cl,
+                colorscale="RdBu",
+                zmid=0.0,
+                colorbar=dict(title=lab),
+            )
+        )
+        fig.update_layout(
+            height=320,
+            title=f"forecast error (noisy - true) — {key}",
+            xaxis_title="horizon offset [h]",
+            yaxis_title="time [h]",
+        )
+        figs[f"forecast error — {key}"] = fig
+    return figs
+
+
 def build_dashboard(figures: dict[str, go.Figure], out_path: Path, title: str) -> None:
     """Concatenate plotly figures into one self-contained HTML file."""
     parts = [
@@ -247,6 +351,11 @@ def main(run_dir: Path, out_html: Path) -> None:
     if not panels:
         raise RuntimeError("No channels with data to render.")
 
+    # The forecast panel (noisy forecast vs true coming data) gets dedicated
+    # figures instead of the generic line/heatmap treatment.
+    forecast_panel = next((p for p in panels if p.name == "forecast"), None)
+    panels = [p for p in panels if p.name != "forecast"]
+
     T = _infer_T(arrays, metadata)
     t_cl = np.arange(T) * dt_h
 
@@ -259,6 +368,12 @@ def main(run_dir: Path, out_html: Path) -> None:
             hmap = _sequence_heatmap_figure(panel, arrays, t_cl, dt_h)
             if hmap is not None:
                 figures[f"{panel.name} — horizon"] = hmap
+
+    if forecast_panel is not None:
+        snap = _forecast_snapshot_figure(arrays, dt_h)
+        if snap is not None:
+            figures["forecast vs truth (snapshot)"] = snap
+        figures.update(_forecast_error_heatmaps(arrays, dt_h))
 
     build_dashboard(figures, out_html, title=f"i4b baseline — {run_dir.name}")
     print(f"Dashboard saved to: {out_html.resolve()}")

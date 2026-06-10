@@ -33,9 +33,11 @@ import json
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+
+from env_setup import add_env_noise_args, env_noise_to_cli, stochasticity_from_args
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -100,6 +102,10 @@ def build_runs(args: argparse.Namespace, run_dir: Path) -> list[Run]:
     """Expand the algorithm x reward x seed grid (+ per-reward baselines)."""
     runs: list[Run] = []
 
+    # One stochasticity config applied uniformly to every run (SAC + baseline) so the
+    # whole grid is trained/evaluated on the same noise/uncertainty level.
+    noise_flags = env_noise_to_cli(stochasticity_from_args(args))
+
     for algo in args.algos:
         script = ALGOS[algo]
         for reward in args.rewards:
@@ -126,6 +132,7 @@ def build_runs(args: argparse.Namespace, run_dir: Path) -> list[Run]:
                     # Each reward -> different OCP (different derived ws), and fop/zop
                     # differ in sensitivity codegen: never share generated code.
                     cmd += ["--reuse-code-dir", str(run_dir / "code" / algo / reward)]
+                cmd += noise_flags
                 cmd += _wandb_args(args, group)
                 runs.append(Run(algo, reward, seed, out, group, cmd))
 
@@ -149,6 +156,7 @@ def build_runs(args: argparse.Namespace, run_dir: Path) -> list[Run]:
             ]
             if args.reuse_code:
                 cmd += ["--reuse-code-dir", str(run_dir / "code" / "baseline" / reward)]
+            cmd += noise_flags
             cmd += _wandb_args(args, group)
             runs.append(Run("baseline", reward, args.baseline_seed, out, group, cmd))
 
@@ -173,6 +181,7 @@ def write_manifest(path: Path, args: argparse.Namespace, run_id: str, runs: list
             "wandb_entity": args.wandb_entity,
             "reuse_code": args.reuse_code,
             "max_parallel": args.max_parallel,
+            "stochasticity": asdict(stochasticity_from_args(args)),
         },
         "runs": [r.to_record() for r in runs],
     }
@@ -297,6 +306,8 @@ def main() -> None:
         help="Concurrent runs. 1 = sequential with live output; >1 tees to console.log.",
     )
     group.add_argument("--dry-run", action="store_true", help="Print the grid and exit.")
+
+    add_env_noise_args(parser)
 
     args = parser.parse_args()
 
