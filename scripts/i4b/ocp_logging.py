@@ -26,9 +26,8 @@ from pathlib import Path
 from typing import Any
 from warnings import warn
 
+from i4b.gym_interface.env import I4bEnvConfig
 from yaml import safe_dump
-
-from leap_c.examples.i4b.env import I4bEnvConfig
 
 SCHEMA_VERSION = 1
 

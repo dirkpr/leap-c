@@ -10,6 +10,8 @@ convention (``CartPoleValChannelsMixin`` in
 
 from __future__ import annotations
 
+from timeit import default_timer
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -58,8 +60,13 @@ class I4bValLoggingMixin:
         state: CtxType | None = None,
     ) -> tuple[np.ndarray, CtxType | None, dict[str, float] | None]:
         obs = self.buffer.collate([obs])
+        t0 = default_timer()
         with torch.inference_mode():
             pi_output: StochasticMPCActorOutput = self.pi(obs, state, deterministic)
+        # Wall-clock of the full policy evaluation (MLP + extra parameter setting +
+        # solve); stashed on ctx so the per-step recorder logs it raw.
+        if pi_output.ctx is not None:
+            pi_output.ctx.policy_time_s = default_timer() - t0
         action = pi_output.action.cpu().numpy()[0]  # type: ignore[union-attr]
         self._last_act_param = pi_output.param.cpu().numpy()[0]
         return action, pi_output.ctx, pi_output.stats
@@ -71,6 +78,11 @@ class I4bValLoggingMixin:
     def _make_val_step_callback(self):
         episode_records: list[dict] = []
         prev_step_ref = [0]
+        episode_ref = [0]
+        # Raw per-step records across all validation episodes, persisted by
+        # validate() for offline / dashboard analysis (aggregation happens in
+        # scripts/i4b/analyze_timings.py, not here).
+        self._all_records: list[dict] = []
 
         def _flush():
             if episode_records:
@@ -84,6 +96,7 @@ class I4bValLoggingMixin:
             # step resets to 1 at the start of every new episode.
             if step == 1 and prev_step_ref[0] > 0:
                 _flush()
+                episode_ref[0] += 1
             prev_step_ref[0] = step
 
             last_act_param = getattr(self, "_last_act_param", None)
@@ -95,8 +108,21 @@ class I4bValLoggingMixin:
             T_set_upper = float(obs["setpoints"]["T_set_upper"].flat[0])
             T_room = float(info.get("T_room", float("nan")))
 
+            # Raw acados solver statistics for this solve (stored verbatim).
+            solver_stats: dict[str, float] = {}
+            if ctx is not None and getattr(ctx, "stats", None):
+                s = ctx.stats[0] if isinstance(ctx.stats, list) else ctx.stats
+                for k in ("time_tot", "time_lin", "time_qp", "sqp_iter"):
+                    v = s.get(k)
+                    if v is not None and np.isscalar(v):
+                        solver_stats[f"solver.{k}"] = float(v)
+
             record = {
                 "step": step,
+                # compute time of the full policy evaluation (overall cost)
+                "policy_time_s": float(getattr(ctx, "policy_time_s", float("nan"))),
+                # applied action (normalised T_HP)
+                "action": float(np.asarray(action).flat[0]) if action is not None else float("nan"),
                 # learnable parameter
                 "Qdot_gains_pred": Qdot_gains_pred,
                 "Qdot_gains_true": Qdot_gains_true,
@@ -116,8 +142,10 @@ class I4bValLoggingMixin:
                 "solver_status": (
                     int(ctx.status.flat[0]) if ctx is not None and hasattr(ctx, "status") else -1
                 ),
+                **solver_stats,
             }
             episode_records.append(record)
+            self._all_records.append({"episode": episode_ref[0], **record})
 
         return callback
 
@@ -187,13 +215,29 @@ class I4bValLoggingMixin:
 
     def validate(self) -> float:
         self._pending_episode_flush = None
+        self._all_records = []
         score = super().validate()
         # Flush the last episode (the step-boundary detector inside the callback
         # cannot see it because no subsequent episode starts after it).
         if self._pending_episode_flush is not None:
             self._pending_episode_flush()
         self._on_validation_end()
+        self._save_val_records()
         return score
+
+    def _save_val_records(self) -> None:
+        """Persist the raw per-step validation records as a flat parquet table.
+
+        One row per env step across all validation episodes (tagged with an
+        ``episode`` index). Aggregation is left to post-processing
+        (scripts/i4b/analyze_timings.py).
+        """
+        records = getattr(self, "_all_records", None)
+        if not records:
+            return
+        path = self.output_path / f"val_records_step{self.state.step}.parquet"
+        pd.DataFrame(records).to_parquet(path)
+        print(f"Per-step table saved to: {path}")
 
 
 class I4bSacFopTrainer(I4bValLoggingMixin, SacFopTrainer):

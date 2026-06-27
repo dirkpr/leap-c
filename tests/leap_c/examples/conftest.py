@@ -6,12 +6,11 @@ import pandas as pd
 import pytest
 
 # ----------------------------------------------------------------------------
-# Hermetic stubs for the gitignored hvac/i4b data assets.
+# Hermetic stubs for the gitignored hvac data assets.
 #
-# The hvac and i4b examples load weather/price CSVs and (for i4b) a large
-# electricity-import parquet that are .gitignore'd, so a fresh CI checkout has
-# none of them. Without these stubs the example tests fall back to live
-# open-meteo/energy-charts requests (which crash) and a missing-parquet read.
+# The hvac example loads weather/price CSVs that are .gitignore'd, so a fresh
+# CI checkout has none of them. Without these stubs the example tests fall
+# back to live open-meteo/energy-charts requests (which crash).
 # ----------------------------------------------------------------------------
 
 
@@ -46,29 +45,13 @@ def _make_synthetic_price() -> pd.DataFrame:
     )
 
 
-def _make_synthetic_elimp() -> pd.DataFrame:
-    """Synthetic hourly, tz-aware apartment electricity-import frame [W/m^2]."""
-    index = pd.date_range("2020-01-01", "2021-12-31 23:00", freq="h", tz="UTC")
-    rng = np.random.default_rng(2)
-    n = len(index)
-    return pd.DataFrame(
-        {
-            "apt_0": rng.uniform(0.5, 5.0, n).astype(np.float32),
-            "apt_1": rng.uniform(0.5, 5.0, n).astype(np.float32),
-        },
-        index=index,
-    )
-
-
 @pytest.fixture(autouse=True)
 def _stub_external_assets():
-    """Make the hvac/i4b example tests hermetic when the data assets are absent.
+    """Make the hvac example tests hermetic when the data assets are absent.
 
     ``get_open_meteo_data`` / ``get_energy_charts_data`` are only invoked on a
     missing CSV (``FileNotFoundError``), so patching them is inert when the real
-    CSVs exist locally and returns synthetic data (no network) in CI. The i4b
-    parquet read is patched only when the real parquet is missing, so local i4b
-    runs keep using the real data.
+    CSVs exist locally and returns synthetic data (no network) in CI.
     """
     patches = [
         patch(
@@ -80,16 +63,6 @@ def _stub_external_assets():
             side_effect=lambda *a, **k: _make_synthetic_price(),
         ),
     ]
-    try:
-        from leap_c.examples.i4b.env import _ELIMP_PARQUET
-
-        if not _ELIMP_PARQUET.exists():
-            patches.append(
-                patch("pandas.read_parquet", side_effect=lambda *a, **k: _make_synthetic_elimp())
-            )
-    except Exception:
-        pass
-
     with contextlib.ExitStack() as stack:
         for p in patches:
             stack.enter_context(p)

@@ -887,8 +887,49 @@ wheels = [
 
 [[package]]
 name = "i4b"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "external/i4b" }
+dependencies = [
+    { name = "casadi" },
+    { name = "gymnasium" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pvlib" },
+    { name = "pyarrow" },
+    { name = "requests" },
+    { name = "scipy" },
+]
+
+[package.optional-dependencies]
+download = [
+    { name = "openmeteo-requests" },
+    { name = "retry-requests" },
+]
+plot = [
+    { name = "matplotlib" },
+    { name = "plotly" },
+]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "casadi" },
+    { name = "gymnasium", specifier = ">=1.1" },
+    { name = "matplotlib", marker = "extra == 'plot'" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "openmeteo-requests", marker = "extra == 'download'" },
+    { name = "pandas", specifier = ">=2.0" },
+    { name = "plotly", marker = "extra == 'plot'" },
+    { name = "pvlib", specifier = ">=0.13" },
+    { name = "pyarrow" },
+    { name = "pytest", marker = "extra == 'test'" },
+    { name = "requests" },
+    { name = "retry-requests", marker = "extra == 'download'" },
+    { name = "scipy", specifier = ">=1.10" },
+]
+provides-extras = ["download", "plot", "test"]
 
 [[package]]
 name = "identify"
@@ -1172,13 +1213,7 @@ acados = [
     { name = "acados-template" },
 ]
 i4b = [
-    { name = "i4b" },
-    { name = "matplotlib" },
-    { name = "pandas" },
-    { name = "plotly" },
-    { name = "pvlib" },
-    { name = "pyarrow" },
-    { name = "requests" },
+    { name = "i4b", extra = ["download", "plot"] },
 ]
 
 [package.metadata]
@@ -1225,15 +1260,7 @@ provides-extras = ["test", "rendering", "docs", "hvac", "dev", "tuning", "wandb"
 
 [package.metadata.requires-dev]
 acados = [{ name = "acados-template", editable = "external/acados/interfaces/acados_template" }]
-i4b = [
-    { name = "i4b", editable = "external/i4b" },
-    { name = "matplotlib", specifier = "==3.10.5" },
-    { name = "pandas", specifier = "==2.3.0" },
-    { name = "plotly", specifier = "==6.8.0" },
-    { name = "pvlib", specifier = "==0.13.1" },
-    { name = "pyarrow", specifier = "==24.0.0" },
-    { name = "requests", specifier = ">=2.32" },
-]
+i4b = [{ name = "i4b", extras = ["download", "plot"], editable = "external/i4b" }]
 
 [[package]]
 name = "locket"

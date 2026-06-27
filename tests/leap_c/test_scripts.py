@@ -98,8 +98,20 @@ def _stub_external_assets():
         ),
     ]
     try:
-        from leap_c.examples.i4b.env import _ELIMP_PARQUET
+        from i4b.gym_interface.env import _ELIMP_PARQUET
 
+        patches.extend(
+            [
+                patch(
+                    "i4b.gym_interface.dataset.get_open_meteo_data",
+                    side_effect=lambda *a, **k: _make_synthetic_weather(),
+                ),
+                patch(
+                    "i4b.gym_interface.dataset.get_energy_charts_data",
+                    side_effect=lambda *a, **k: _make_synthetic_price(),
+                ),
+            ]
+        )
         if not _ELIMP_PARQUET.exists():
             patches.append(
                 patch("pandas.read_parquet", side_effect=lambda *a, **k: _make_synthetic_elimp())

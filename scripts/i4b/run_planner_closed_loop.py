@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 import torch
 from i4b.gym_interface import BUILDING_NAMES2CLASS
+from i4b.gym_interface.env import I4bEnv, I4bEnvConfig
 from i4b.models.model_hvac import Heatpump_AW
 
-from leap_c.examples.i4b.env import I4bEnv, I4bEnvConfig
 from leap_c.examples.i4b.planner import I4bPlanner, I4bPlannerConfig
 
 # ── Configuration ──────────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ ENV_REGISTRY: dict[str, tuple[str, str]] = {
     "pointmass": ("leap_c.examples.pointmass.env", "PointMassEnv"),
     "hvac": ("leap_c.examples.hvac.env", "StochasticThreeStateRcEnv"),
     "hvac_continual": ("leap_c.examples.hvac.env", "ContinualStochasticThreeStateRcEnv"),
-    "i4b": ("leap_c.examples.i4b.env", "I4bEnv"),
+    "i4b": ("i4b.gym_interface.env", "I4bEnv"),
 }
 
 

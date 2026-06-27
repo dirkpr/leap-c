@@ -17,6 +17,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+from timeit import default_timer
 from typing import Any, Generator, Literal
 
 import gymnasium as gym
@@ -29,13 +30,13 @@ from env_setup import (
     build_env_cfg,
     stochasticity_from_args,
 )
+from i4b.gym_interface.env import I4bEnv
 from numpy import ndarray
 from ocp_logging import dump_solver_config
 from reward_setup import REWARD_NAMES, resolve_reward
 
 from leap_c.controller import CtxType, ParameterizedController
 from leap_c.examples import ExampleControllerName, create_controller
-from leap_c.examples.i4b.env import I4bEnv
 from leap_c.run import (
     default_controller_code_path,
     default_name,
@@ -192,7 +193,11 @@ class BaselineTrainer(Trainer[BaselineTrainerConfig, Any]):
         param_tensor = torch.from_numpy(param).to(self.device)
         if param_tensor.ndim == 1:
             param_tensor = param_tensor.unsqueeze(0)
+        t0 = default_timer()
         ctx, action = self.controller(obs_batched, param_tensor, ctx=state)
+        # Wall-clock of the full policy evaluation; read back by the channel
+        # logger (channels.py "policy_time_s") so it lands in the raw per-step log.
+        ctx.policy_time_s = default_timer() - t0
         action = action.cpu().numpy()[0]
         return action, ctx, ctx.log
 
@@ -238,8 +243,10 @@ class BaselineTrainer(Trainer[BaselineTrainerConfig, Any]):
         planner = self.controller.planner
         header = header_from(env, planner)
         npz_path, json_path = self._val_logger.save(self.output_path, self.state.step, header)
+        parquet_path = self._val_logger.save_table(self.output_path, self.state.step)
         print(f"Channel log saved to: {npz_path}")
         print(f"Channel metadata saved to: {json_path}")
+        print(f"Per-step table saved to: {parquet_path}")
         return score
 
 

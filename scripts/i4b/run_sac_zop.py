@@ -77,6 +77,27 @@ def create_cfg(seed: int = 0) -> RunI4bSacZopConfig:
     return cfg
 
 
+def _load_actor(trainer: I4bSacZopTrainer, ckpt: Path) -> None:
+    """Load only the actor (``pi``) weights for evaluation.
+
+    ``ckpt`` may be a run directory (looks for ``ckpts/last_pi.ckpt`` then
+    ``ckpts/best_pi.ckpt``) or a direct ``pi`` ``.ckpt`` file. Loading only the
+    policy avoids restoring the replay buffer / optimizers / trainer state.
+    """
+    ckpt = Path(ckpt)
+    if ckpt.is_dir():
+        candidates = [ckpt / "ckpts" / "last_pi.ckpt", ckpt / "ckpts" / "best_pi.ckpt"]
+        pi_ckpt = next((c for c in candidates if c.exists()), None)
+        if pi_ckpt is None:
+            raise FileNotFoundError(
+                f"No actor checkpoint (last_pi.ckpt / best_pi.ckpt) under {ckpt / 'ckpts'}"
+            )
+    else:
+        pi_ckpt = ckpt
+    trainer.pi.load_state_dict(torch.load(pi_ckpt, weights_only=False))
+    print(f"Loaded actor weights from: {pi_ckpt}")
+
+
 def run(
     cfg: RunI4bSacZopConfig,
     output_path: Path,
@@ -85,10 +106,25 @@ def run(
     reuse_code_dir: Path | None = None,
     with_val: bool = False,
     reward_name: str = "R0",
+    eval_only: bool = False,
+    eval_days: int = 365,
+    ckpt: Path | None = None,
 ) -> float:
     rcfg = resolve_reward(reward_name)
     env_cfg = build_env_cfg(cfg.env, rcfg, seed=cfg.trainer.seed)
-    val_env = create_env("i4b", render_mode="rgb_array", cfg=env_cfg) if with_val else None
+
+    if eval_only:
+        # Skip training: run a single (one-year by default) validation of the actor
+        # so the per-step recorder logs the full year. train_steps=0 makes
+        # _run_with_eval_env() validate exactly once.
+        cfg.trainer.train_steps = 0
+        cfg.trainer.val_freq = 1
+        cfg.trainer.val_num_rollouts = 1
+        val_env_cfg = build_env_cfg(cfg.env, rcfg, seed=cfg.trainer.seed, days=eval_days)
+        val_env = create_env("i4b", render_mode="rgb_array", cfg=val_env_cfg)
+    else:
+        val_env = create_env("i4b", render_mode="rgb_array", cfg=env_cfg) if with_val else None
+
     controller = create_controller("i4b", reuse_code_dir, reward=rcfg)
     trainer = I4bSacZopTrainer(
         val_env=val_env,
@@ -100,6 +136,8 @@ def run(
         cfg=cfg.trainer,
     )
     init_run(trainer, cfg, output_path)
+    if ckpt is not None:
+        _load_actor(trainer, ckpt)
     dump_solver_config(
         output_path, controller, algo="sac_zop", reward_name=reward_name, env_cfg=env_cfg
     )
@@ -115,6 +153,23 @@ if __name__ == "__main__":
     parser.add_argument("--output-path", type=Path, default=None)
     parser.add_argument("--train-steps", type=int, default=None)
     parser.add_argument("--with-val", action="store_true")
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Skip training; run a single validation of the actor and record per-step data.",
+    )
+    parser.add_argument(
+        "--eval-days",
+        type=int,
+        default=365,
+        help="Episode length in days for --eval-only (default: 365 = one year).",
+    )
+    parser.add_argument(
+        "--ckpt",
+        type=Path,
+        default=None,
+        help="Run dir or pi .ckpt file: load trained actor weights for --eval-only.",
+    )
     parser.add_argument(
         "--reward",
         type=str,
@@ -189,4 +244,7 @@ if __name__ == "__main__":
         reuse_code_dir=reuse_code_dir,
         with_val=args.with_val,
         reward_name=args.reward,
+        eval_only=args.eval_only,
+        eval_days=args.eval_days,
+        ckpt=args.ckpt,
     )

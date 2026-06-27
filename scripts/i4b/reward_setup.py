@@ -5,8 +5,8 @@ Centralizes the ``showcase_rewards.py`` pattern (probe env -> ``compute_refs`` -
 reward identically, keeping the env reward and the planner OCP cost aligned.
 """
 
-from leap_c.examples.i4b.env import BUILDING_NAMES2CLASS, Heatpump_AW, I4bEnv, I4bEnvConfig
-from leap_c.examples.i4b.reward import RewardConfig, compute_refs, make_scenarios
+from i4b.gym_interface.env import BUILDING_NAMES2CLASS, Heatpump_AW, I4bEnv, I4bEnvConfig
+from i4b.gym_interface.reward import RewardConfig, compute_refs, make_scenarios
 
 REWARD_NAMES = ("R0", "R1", "R2", "R3")
 

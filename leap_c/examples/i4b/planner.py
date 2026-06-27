@@ -5,12 +5,12 @@ from typing import Any
 import numpy as np
 import torch
 from i4b.gym_interface import BUILDING_NAMES2CLASS
+from i4b.gym_interface.env import T_HP_ACT_HIGH, T_HP_ACT_LOW
+from i4b.gym_interface.reward import RewardConfig, derive_ws, grid_signal_from_reward
 from i4b.models.model_buildings import Building
 from i4b.models.model_hvac import Heatpump, Heatpump_AW
 
 from leap_c.examples.i4b.acados_ocp import export_parametric_ocp, make_i4b_params
-from leap_c.examples.i4b.env import _T_HP_ACT_HIGH, _T_HP_ACT_LOW
-from leap_c.examples.i4b.reward import RewardConfig, derive_ws, grid_signal_from_reward
 from leap_c.ocp.acados.parameters import AcadosParameter, AcadosParameterManager
 from leap_c.ocp.acados.planner import AcadosPlanner
 from leap_c.ocp.acados.torch import AcadosDiffMpcCtx, AcadosDiffMpcTorch
@@ -68,8 +68,8 @@ class I4bPlannerConfig:
             self.ws = derive_ws(self.reward, self.delta_t)
 
 
-_ACTION_MID = (_T_HP_ACT_HIGH + _T_HP_ACT_LOW) / 2
-_ACTION_HALF = (_T_HP_ACT_HIGH - _T_HP_ACT_LOW) / 2
+_ACTION_MID = (T_HP_ACT_HIGH + T_HP_ACT_LOW) / 2
+_ACTION_HALF = (T_HP_ACT_HIGH - T_HP_ACT_LOW) / 2
 
 
 def _fc_to_staged(

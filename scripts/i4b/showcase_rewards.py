@@ -4,7 +4,7 @@ For each reward scenario in ``REWARD_SCENARIOS`` (R0 energy, R1 cost, R2 comfort
 R3 combined) this runs a closed-loop MPC rollout (``I4bPlanner`` + ``I4bEnv``) in
 which the env reward and the planner OCP cost are driven by the *same*
 ``RewardConfig`` -- so reward and MPC stay aligned (see
-``leap_c/examples/i4b/reward.py`` and the wiki note ``i4b-reward-design``).
+``i4b/gym_interface/reward.py`` and the wiki note ``i4b-reward-design``).
 
 It illustrates, per scenario, the per-term reward decomposition and the total reward
 alongside the state/action trajectories, writes a combined cross-scenario comparison
@@ -27,11 +27,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from i4b.gym_interface import BUILDING_NAMES2CLASS
+from i4b.gym_interface.env import I4bEnv, I4bEnvConfig
+from i4b.gym_interface.reward import compute_refs, make_scenarios
 from i4b.models.model_hvac import Heatpump_AW
 
-from leap_c.examples.i4b.env import I4bEnv, I4bEnvConfig
 from leap_c.examples.i4b.planner import I4bPlanner, I4bPlannerConfig
-from leap_c.examples.i4b.reward import compute_refs, make_scenarios
 
 # ── Reward terms tracked per step (from info["reward_terms"]) ───────────────────
 _TERM_KEYS = (

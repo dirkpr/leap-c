@@ -20,24 +20,24 @@ from pathlib import Path
 from tempfile import mkdtemp
 
 import torch
-from reward_setup import resolve_reward
-from run_baseline import BaselineTrainer, BaselineTrainerConfig
-from trainer import I4bSacFopTrainer, I4bSacZopTrainer
-from yaml import safe_load
-
-from leap_c.examples import create_controller
-from leap_c.examples.hvac.forecast import (
-    ForecastConfig,
-    SolarUncertaintyConfig,
-    TemperatureUncertaintyConfig,
-)
-from leap_c.examples.i4b.env import (
+from i4b.gym_interface.env import (
     BUILDING_NAMES2CLASS,
     Heatpump_AW,
     Heatpump_Vitocal,
     I4bEnv,
     I4bEnvConfig,
 )
+from i4b.gym_interface.forecast import (
+    ForecastConfig,
+    SolarUncertaintyConfig,
+    TemperatureUncertaintyConfig,
+)
+from reward_setup import resolve_reward
+from run_baseline import BaselineTrainer, BaselineTrainerConfig
+from trainer import I4bSacFopTrainer, I4bSacZopTrainer
+from yaml import safe_load
+
+from leap_c.examples import create_controller
 from leap_c.torch.rl.sac_fop import SacFopTrainerConfig
 from leap_c.torch.rl.sac_zop import SacZopTrainerConfig
 from leap_c.utils.cfg import update_dataclass_from_dict

@@ -81,16 +81,11 @@ wandb = ["wandb==0.20.1"]
 [dependency-groups]
 # Installed by default via [tool.uv] default-groups (see below), so a plain
 # `uv sync` makes the i4b example usable. `i4b` itself is sourced from the
-# external/i4b submodule (see [tool.uv.sources]); the other entries are the
-# extra runtime deps the i4b example imports that leap-c core does not provide.
+# external/i4b submodule (see [tool.uv.sources]) and declares its own runtime
+# deps (gymnasium, pandas, pvlib, pyarrow, ...); the extras cover the
+# weather/price cache refill (download) and I4bEnv.plot_dataset (plot).
 i4b = [
-  "i4b",
-  "pvlib==0.13.1",
-  "pandas==2.3.0",      # match the pin used by the [hvac] extra
-  "matplotlib==3.10.5", # match the pin used by the [test] extra
-  "requests>=2.32",
-  "pyarrow==24.0.0",    # match the [hvac] pin; parquet engine for the COFACTOR elimp dataset
-  "plotly==6.8.0",      # match the [hvac] pin; used by I4bEnv.plot_dataset
+  "i4b[download,plot]",
 ]
 # Installed by default via [tool.uv] default-groups (see below), so a plain
 # `uv sync` installs the acados Python interface. `acados_template` is sourced

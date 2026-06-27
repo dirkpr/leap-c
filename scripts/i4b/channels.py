@@ -40,8 +40,8 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import numpy as np
+from i4b.gym_interface.env import I4bEnv
 
-from leap_c.examples.i4b.env import I4bEnv
 from leap_c.ocp.acados.utils.prepare_solver import prepare_batch_solver_for_backward
 
 Extract = Callable[[dict, dict, Any, Any, float], Any]
@@ -143,6 +143,30 @@ class ChannelLogger:
         }
         json_path.write_text(json.dumps(metadata, indent=2))
         return npz_path, json_path
+
+    def save_table(self, out_dir, step: int) -> Any:
+        """Save the per-step scalar channels as a flat one-row-per-step parquet.
+
+        Only scalar and ``scalars_dict`` columns are exported (sequences and
+        matrices stay in the NPZ). This is the dashboard-friendly table; the raw
+        values are stored verbatim, with aggregation left to post-processing.
+        Ragged columns (e.g. a solver-stat field missing on a step) are padded
+        with NaN so all columns share one length.
+        """
+        from pathlib import Path
+
+        import pandas as pd
+
+        out_dir = Path(out_dir)
+        n = max((len(v) for v in self.scalars.values()), default=0)
+        data = {
+            name: list(vals) + [float("nan")] * (n - len(vals))
+            for name, vals in self.scalars.items()
+        }
+        df = pd.DataFrame(data)
+        parquet_path = out_dir / f"val_records_step{step}.parquet"
+        df.to_parquet(parquet_path)
+        return parquet_path
 
 
 def _safe_call(ch: Channel, kind: str, obs, info, action, ctx, reward):
@@ -253,7 +277,7 @@ def default_channels(
         )
     )
 
-    if False:
+    if True:
         # ── Disturbances ──
         channels.append(
             Channel(
@@ -263,7 +287,7 @@ def default_channels(
             )
         )
 
-    if False:
+    if True:
         channels.append(
             Channel(
                 name="Qdot_gains",
@@ -330,7 +354,17 @@ def default_channels(
             )
 
     # ── Step metrics ──
-    if False:
+    if True:
+        # Wall-clock of the full policy evaluation, stashed on ctx in the
+        # trainer's act() (ctx.policy_time_s). Recorded raw per step; the
+        # solver's own time_tot below is a subset of this.
+        channels.append(
+            Channel(
+                name="policy_time_s",
+                scalar=lambda obs, info, a, ctx, r: getattr(ctx, "policy_time_s", float("nan")),
+                ylabel="policy eval time [s]",
+            )
+        )
         channels.append(
             Channel(
                 name="E_el_kWh",
@@ -347,6 +381,9 @@ def default_channels(
         )
 
         # ── Solver stats (dict -> multiple scalar columns) ──
+        # Raw per-step acados statistics (time_tot, time_lin, time_qp, ...,
+        # sqp_iter, status). Stored verbatim; aggregation happens in
+        # post-processing (scripts/i4b/analyze_timings.py).
         def _solver_stats(obs, info, a, ctx, r):
             if ctx is None or not getattr(ctx, "stats", None):
                 return {}
@@ -354,7 +391,7 @@ def default_channels(
             return {
                 k: float(v)
                 for k, v in s.items()
-                if (k.startswith("time") or k == "sqp_iter") and np.isscalar(v)
+                if (k.startswith("time") or k in ("sqp_iter", "status")) and np.isscalar(v)
             }
 
         channels.append(Channel(name="solver", scalars_dict=_solver_stats))
