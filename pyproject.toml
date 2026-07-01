@@ -65,11 +65,21 @@ hvac = [
   "requests-cache==1.2.1",
   "requests<2.34.0"
 ]
+boptest = [
+  # Runtime dependencies of the vendored boptest-gym submodule
+  # (external/project1-boptest-gym, imported lazily by the boptest example env).
+  "pandas==2.3.0",
+  "requests<2.34.0",
+  "scipy==1.15.2",
+  "matplotlib==3.10.5",
+  "stable-baselines3>=2.3.0",
+]
 dev = [
   "leap_c[rendering]",
   "leap_c[docs]",
   "leap_c[test]",
   "leap_c[hvac]",
+  "leap_c[boptest]",
   "leap_c[tuning]",
   "leap_c[wandb]",
   "pre-commit==4.3.0",

@@ -10,8 +10,11 @@ from gymnasium import Env
 from leap_c.controller import CtxType, ParameterizedController
 from leap_c.planner import ControllerFromPlanner, ParameterizedPlanner
 
-ExampleEnvName = Literal["cartpole", "cartpole_balance", "chain", "mass_spring_damper", "pointmass"]
+ExampleEnvName = Literal[
+    "boptest", "cartpole", "cartpole_balance", "chain", "mass_spring_damper", "pointmass"
+]
 ENV_REGISTRY: dict[str, tuple[str, str]] = {
+    "boptest": ("leap_c.examples.boptest.env", "BoptestEnv"),
     "cartpole": ("leap_c.examples.cartpole.env", "CartPoleEnv"),
     "cartpole_balance": ("leap_c.examples.cartpole.env", "CartPoleBalanceEnv"),
     "chain": ("leap_c.examples.chain.env", "ChainEnv"),
@@ -42,6 +45,12 @@ def create_env(env_name: ExampleEnvName, **kw: Any) -> Env:
 
 
 PLANNER_REGISTRY: dict[str, tuple[str, str, str, dict[str, Any]]] = {
+    "boptest": (
+        "leap_c.examples.boptest.planner",
+        "BoptestPlanner",
+        "BoptestPlannerConfig",
+        {},
+    ),
     "cartpole": (
         "leap_c.examples.cartpole.planner",
         "CartPolePlanner",
@@ -63,6 +72,7 @@ PLANNER_REGISTRY: dict[str, tuple[str, str, str, dict[str, Any]]] = {
     ),
 }
 ExamplePlannerName = Literal[
+    "boptest",
     "cartpole",
     "chain",
     "mass_spring_damper",

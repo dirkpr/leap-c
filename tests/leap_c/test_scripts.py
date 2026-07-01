@@ -17,6 +17,17 @@ else:
 LEAP_C_ROOT_SCRIPTS = LEAP_C_ROOT / "scripts"
 CTRL_REGISTRY = CONTROLLER_REGISTRY | PLANNER_REGISTRY
 
+# Environments that need an external server (a running BOPTEST docker stack) to
+# step. The generic smoke test skips them unless BOPTEST_URL is set, since the
+# offline / CI suite has no server.
+SERVER_DEPENDENT_ENVS = {"boptest"}
+
+
+def _server_env_allowed(env: str) -> bool:
+    if env in SERVER_DEPENDENT_ENVS:
+        return bool(os.environ.get("BOPTEST_URL"))
+    return True
+
 
 def find_all_scripts():
     scripts = {}
@@ -121,6 +132,7 @@ def _get_envs():
     envs = list(ENV_REGISTRY.keys())
     if test_env_filter:
         envs = [e for e in envs if e in test_env_filter]
+    envs = [e for e in envs if _server_env_allowed(e)]
 
     return envs
 
@@ -140,6 +152,8 @@ def _get_env_controller_pairs():
 
     pairs = []
     for env in ENV_REGISTRY.keys():
+        if not _server_env_allowed(env):
+            continue
         for controller in CTRL_REGISTRY.keys():
             if controller.startswith(env):
                 # Apply filters if set
