@@ -12,7 +12,8 @@ dependencies = [
   "torch>=2.0.0",
   "scipy==1.15.2",
   "PyYAML==6.0.2",
-  "tensordict>=0.10.0"
+  "tensordict>=0.10.0",
+  "acados_template"
 ]
 
 requires-python = ">=3.11"
@@ -96,6 +97,9 @@ notebook = [
 
 [tool.setuptools]
 packages = ["leap_c"]
+
+[tool.uv.sources]
+acados_template = { path = "external/acados/interfaces/acados_template", editable = true }
 
 [project.urls]
 Repository = "https://github.com/leap-c/leap-c"

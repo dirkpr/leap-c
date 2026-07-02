@@ -40,7 +40,7 @@ be kept in lock-step). From the boptest submodule:
 
 ```bash
 cd external/project1-boptest
-docker compose up -d web worker provision
+docker compose up web worker provision
 ```
 
 The `web` service listens on **port 80**, so the default URL is
@@ -49,7 +49,7 @@ because it races the one-shot `mc` container that provisions the local minio
 (S3) credentials — simply re-run once the `mc` container has exited:
 
 ```bash
-docker compose up -d web provision
+docker compose up web worker provision
 ```
 
 Stop everything with `docker compose down` (built images stay cached).
