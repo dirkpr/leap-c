@@ -78,8 +78,8 @@ The env round-trip test is skipped unless `BOPTEST_URL` is set. The generic
 
 ## Parameters and forecasts
 
-- **Differentiable (tunable) parameters:** R1C1 gains `R, C, a_sol, heat_gain,
-  cop` and the comfort weight `w_comfort`. Registered but left at defaults (no
+- **Differentiable (tunable) parameters:** R1C1 gains `R`, `C`, `a_sol`, `heat_gain`,
+  `cop` and the comfort weight `w_comfort`. Registered but left at defaults (no
   learning yet); exposed via `param_space` for later tuning.
 - **Forecast / exogenous inputs** (`T_amb`, `solar`, `price`, comfort bounds
   `T_lower`/`T_upper`) come from BOPTEST as perfect forecasts over the horizon
